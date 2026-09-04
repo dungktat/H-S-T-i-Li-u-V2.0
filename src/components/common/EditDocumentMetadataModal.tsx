@@ -21,6 +21,8 @@ import {
 import confetti from 'canvas-confetti';
 import { StorageService } from '../../services/storageService';
 import { formatCurrencyVND } from './DynamicMetadataFields';
+import { PhysicalLocation } from '../../types';
+import { PhysicalLocationSelector } from './PhysicalLocationSelector';
 
 interface EditDocumentMetadataModalProps {
   isOpen: boolean;
@@ -58,12 +60,19 @@ export const EditDocumentMetadataModal: React.FC<EditDocumentMetadataModalProps>
     doc.securityLevel === 'MẬT' ? 'MẬT' : 'THƯỜNG'
   );
 
-  // Physical location states
+  // Physical location states (5 levels: Phòng/Ban/Đơn vị con - Kệ - Ngăn - Hộp/Cặp - Hồ sơ)
   const loc = doc.physicalLocation || doc.hstlArchiveInfo?.physicalLocation || {};
-  const [kho, setKho] = useState(loc.kho || 'Kho Lưu trữ Trung tâm (Tòa nhà Tổng công ty)');
-  const [ke, setKe] = useState(loc.ke || 'Kệ A1');
-  const [ngan, setNgan] = useState(loc.ngan || 'Ngăn 03');
-  const [hop, setHop] = useState(loc.hop || 'Hộp 12');
+  const [physicalLocation, setPhysicalLocation] = useState<PhysicalLocation>({
+    phongBan: loc.phongBan || loc.donVi || 'Văn phòng Tổng công ty (Phòng Hành chính - Lưu trữ)',
+    ke: loc.ke || 'Kệ K-01 (Văn bản Đến & Chỉ đạo)',
+    ngan: loc.ngan || 'Ngăn N-01',
+    hop: loc.hop || 'Hộp / Cặp H-01',
+    hoSo: loc.hoSo || 'Hồ sơ số 01 (HS-01)',
+    maVach: loc.maVach,
+    donVi: loc.donVi || 'Văn phòng Tổng công ty',
+    khuVuc: loc.khuVuc,
+    kho: loc.kho
+  });
 
   // Custom metadata states
   const [customMetadata, setCustomMetadata] = useState<Record<string, any>>(() => {
@@ -93,10 +102,16 @@ export const EditDocumentMetadataModal: React.FC<EditDocumentMetadataModalProps>
       setSecurityLevel(doc.securityLevel === 'MẬT' ? 'MẬT' : 'THƯỜNG');
       
       const l = doc.physicalLocation || doc.hstlArchiveInfo?.physicalLocation || {};
-      setKho(l.kho || 'Kho Lưu trữ Trung tâm (Tòa nhà Tổng công ty)');
-      setKe(l.ke || 'Kệ A1');
-      setNgan(l.ngan || 'Ngăn 03');
-      setHop(l.hop || 'Hộp 12');
+      setPhysicalLocation({
+        donVi: l.donVi || 'Tổng công ty Đường sắt Việt Nam',
+        khuVuc: l.khuVuc || 'Khu vực A (Tầng 1 - Kho Lưu trữ Trụ sở 118 Lê Duẩn)',
+        ke: l.ke || 'Kệ K-01 (Văn bản Đến)',
+        ngan: l.ngan || 'Ngăn N-01 (Văn bản Đến 2024)',
+        hop: l.hop || 'Hộp H-01',
+        hoSo: l.hoSo || 'Hồ sơ số 01 (HS-01)',
+        maVach: l.maVach,
+        kho: l.kho || 'Kho Lưu trữ Trung tâm Số 1'
+      });
 
       setCustomMetadata(doc.customMetadata ? { ...doc.customMetadata } : {});
       setIsConfirmingDeleteDoc(false);
@@ -170,12 +185,7 @@ export const EditDocumentMetadataModal: React.FC<EditDocumentMetadataModalProps>
       loaiVanBan: loaiVanBan.trim(),
       retentionPeriod: retentionPeriod,
       securityLevel: securityLevel,
-      physicalLocation: {
-        kho: kho.trim(),
-        ke: ke.trim(),
-        ngan: ngan.trim(),
-        hop: hop.trim()
-      },
+      physicalLocation: physicalLocation,
       customMetadata: Object.keys(customMetadata).length > 0 ? customMetadata : undefined,
       updatedAt: new Date().toISOString()
     };
@@ -366,57 +376,12 @@ export const EditDocumentMetadataModal: React.FC<EditDocumentMetadataModalProps>
             </div>
           </div>
 
-          {/* Section 2: Vị trí kho vật lý */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-200 pb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-blue-600" />
-                <span>2. Tọa độ Kho Lưu trữ Vật lý</span>
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="col-span-2 sm:col-span-1">
-                <label className="block text-[11px] font-semibold text-gray-600 mb-1">Kho lưu trữ</label>
-                <input
-                  type="text"
-                  value={kho}
-                  onChange={(e) => setKho(e.target.value)}
-                  placeholder="Kho trung tâm"
-                  className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-600 mb-1">Giá / Kệ</label>
-                <input
-                  type="text"
-                  value={ke}
-                  onChange={(e) => setKe(e.target.value)}
-                  placeholder="Kệ A1"
-                  className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-600 mb-1">Ngăn</label>
-                <input
-                  type="text"
-                  value={ngan}
-                  onChange={(e) => setNgan(e.target.value)}
-                  placeholder="Ngăn 02"
-                  className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-600 mb-1">Hộp / Cặp</label>
-                <input
-                  type="text"
-                  value={hop}
-                  onChange={(e) => setHop(e.target.value)}
-                  placeholder="Hộp 05"
-                  className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-            </div>
+          {/* Section 2: Vị trí kho vật lý 6 Cấp */}
+          <div className="space-y-2">
+            <PhysicalLocationSelector
+              value={physicalLocation}
+              onChange={setPhysicalLocation}
+            />
           </div>
 
           {/* Section 3: Thuộc tính Metadata Đặc Thù (Custom Metadata) */}

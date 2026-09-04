@@ -39,7 +39,11 @@ import {
   ArrowUpRight,
   RefreshCw,
   MessageSquare,
-  Eye
+  Eye,
+  Box,
+  FolderArchive,
+  Barcode,
+  ArrowRight
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DocumentVersion } from '../../types';
@@ -195,6 +199,65 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDownloadDocument = () => {
+    if (!currentDoc) return;
+    const fileUrl = selectedVersionForPreview?.fileUrl || currentDoc.fileUrl || currentDoc.fileScanUrl || currentDoc.scannedFileUrl || currentDoc.draftFileUrl;
+    const fileName = selectedVersionForPreview?.fileName || currentDoc.fileName || currentDoc.scannedFileName || currentDoc.draftFileName;
+
+    if (fileUrl && (fileUrl.startsWith('data:') || fileUrl.startsWith('blob:') || fileUrl.startsWith('http'))) {
+      const a = window.document.createElement('a');
+      a.href = fileUrl;
+      a.download = fileName || `${code.replace(/[^a-zA-Z0-9_-]/g, '_')}_HoSo.pdf`;
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      return;
+    }
+
+    // Xuất tệp hồ sơ dữ liệu đầy đủ
+    const exportData = `================================================================================
+TỔNG CÔNG TY ĐƯỜNG SẮT VIỆT NAM (VNR)
+HỆ THỐNG QUẢN LÝ VĂN BẢN VÀ LƯU TRỮ HỒ SƠ ĐIỆN TỬ (HSTL)
+================================================================================
+BẢN TRÍCH XUẤT DỮ LIỆU HỒ SƠ LƯU TRỮ CHÍNH THỨC
+
+• Số / Ký hiệu hồ sơ: ${code}
+• Trích yếu nội dung: ${title}
+• Cơ quan / Đơn vị ban hành: ${issuingUnit}
+• Ngày văn bản: ${date}
+• Thời hạn bảo quản: ${retention}
+• Cấp độ bảo mật: ${currentDoc.securityLevel || 'THƯỜNG'}
+
+--------------------------------------------------------------------------------
+TỌA ĐỘ KHO VẬT LÝ 5 CẤP CHUẨN HOÁ:
+• Cấp 1 (Phòng / Ban / Đơn vị con): ${location?.phongBan || location?.donVi || 'Chưa định vị'}
+• Cấp 2 (Dãy Kệ lưu trữ): ${location?.ke || 'N/A'}
+• Cấp 3 (Ngăn Kệ): ${location?.ngan || 'N/A'}
+• Cấp 4 (Hộp / Cặp hồ sơ): ${location?.hop || 'N/A'}
+• Cấp 5 (Vị trí Hồ sơ): ${location?.hoSo || code}
+• Mã Barcode / RFID: ${location?.maVach || 'N/A'}
+
+--------------------------------------------------------------------------------
+NỘI DUNG SỐ HÓA & OCR TOÀN VĂN:
+${currentDoc.ocrExtracted?.fullOcrText || currentDoc.ocrText || title}
+
+================================================================================
+Thời điểm trích xuất: ${new Date().toLocaleString('vi-VN')}
+Cán bộ trích xuất: ${currentUser?.name || 'Cán bộ'} (${currentUser?.department || 'TCT ĐSVN'} - ${currentUser?.roleTitle || ''})
+Mã xác thực lưu trữ số: VNR-HSTL-VIEWER-${Date.now()}
+================================================================================`;
+
+    const blob = new Blob([exportData], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = window.document.createElement('a');
+    a.href = url;
+    a.download = `${(fileName ? fileName.replace(/\.[^/.]+$/, '') : code.replace(/[^a-zA-Z0-9_-]/g, '_'))}_DuLieu_HSTL.txt`;
+    window.document.body.appendChild(a);
+    a.click();
+    window.document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleIssueCopy = () => {
@@ -364,6 +427,14 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
                 </button>
               </>
             )}
+            <button
+              onClick={handleDownloadDocument}
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition cursor-pointer"
+              title="Tải về tệp đính kèm hoặc dữ liệu hồ sơ"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Tải về</span>
+            </button>
             <button
               onClick={handlePrint}
               className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-slate-700 hover:text-slate-900 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition cursor-pointer"
@@ -979,63 +1050,172 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
 
           {activeTab === 'location' && (
             <div className="space-y-4">
-              {location ? (
-                <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-6 shadow-sm">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-4 gap-2">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 rounded-xl bg-blue-50 text-blue-700 border border-blue-100">
-                        <Archive className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-[#1e293b]">
-                          Tọa độ Kho Vật lý Theo Tiêu Chuẩn Lưu Trữ
-                        </h4>
-                        <p className="text-xs text-gray-500 font-medium">
-                          Hồ sơ bản giấy đã được định vị chính xác trong kho
-                        </p>
-                      </div>
-                    </div>
-                    <div className="font-mono text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 self-start sm:self-auto">
-                      MÃ VẠCH: {location.maVach}
-                    </div>
-                  </div>
+              {location ? (() => {
+                const phongBan = location.phongBan || location.donVi || 'Văn phòng Tổng công ty (Phòng Hành chính - Lưu trữ)';
+                const ke = location.ke || 'Kệ K-01 (Văn bản Đến & Chỉ đạo)';
+                const ngan = location.ngan || 'Ngăn N-01';
+                const hop = location.hop || 'Hộp / Cặp H-01';
+                const hoSo = location.hoSo || 'Hồ sơ số 01 (HS-01)';
+                const barcodeText = location.maVach || `VP-${(ke.split(' ')[0] || 'K01').replace(/[^a-zA-Z0-9]/g, '')}-${(ngan.split(' ')[0] || 'N01').replace(/[^a-zA-Z0-9]/g, '')}-${(hop.split(' ')[0] || 'H01').replace(/[^a-zA-Z0-9]/g, '')}-HS01`;
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 text-center">
-                      <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">1. Kho</span>
-                      <span className="text-xs font-bold text-blue-700">{location.kho}</span>
+                return (
+                  <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-6 shadow-sm">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-4 gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-3 rounded-xl bg-blue-50 text-blue-700 border border-blue-100">
+                          <Archive className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-[#1e293b]">
+                            Tọa độ Kho Vật lý Theo Tiêu Chuẩn Lưu Trữ 5 Cấp
+                          </h4>
+                          <p className="text-xs text-gray-500 font-medium mt-0.5">
+                            Quy chuẩn định vị chuẩn hóa: <span className="font-bold text-blue-700">Phòng / Ban / Đơn vị con ➔ Kệ ➔ Ngăn ➔ Hộp / Cặp ➔ Hồ sơ</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <div className="font-mono text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5 shadow-2xs">
+                          <Barcode className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>MÃ VẠCH: {barcodeText}</span>
+                        </div>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setIsEditMetadataOpen(true)}
+                            className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                            title="Điều chỉnh tọa độ kho 5 cấp"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Đổi tọa độ</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 text-center">
-                      <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">2. Kệ</span>
-                      <span className="text-xs font-bold text-amber-700">{location.ke}</span>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 text-center">
-                      <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">3. Ngăn</span>
-                      <span className="text-xs font-bold text-purple-700">{location.ngan}</span>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 text-center">
-                      <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">4. Hộp</span>
-                      <span className="text-xs font-bold text-emerald-700">{location.hop}</span>
-                    </div>
-                  </div>
 
-                  {/* Visual Barcode Display */}
-                  <div className="bg-slate-900 text-white p-5 rounded-xl flex flex-col items-center justify-center space-y-2 border border-slate-800 shadow-sm">
-                    <div className="h-10 flex items-center justify-center gap-1">
-                      {Array.from({ length: 45 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`h-full ${i % 3 === 0 ? 'w-1 bg-white' : i % 2 === 0 ? 'w-0.5 bg-white' : 'w-1.5 bg-white'}`}
-                        />
-                      ))}
+                    {/* Breadcrumb Path (5 Cấp) */}
+                    <div className="bg-gradient-to-r from-blue-50/70 via-indigo-50/50 to-slate-50 border border-blue-100 rounded-xl p-3 flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="text-gray-500 font-semibold text-[11px]">Đường dẫn vật lý 5 cấp:</span>
+                      <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-900 font-bold flex items-center gap-1 text-[11px]">
+                        <Building2 className="w-3 h-3 text-blue-700" /> {phongBan}
+                      </span>
+                      <ArrowRight className="w-3 h-3 text-blue-400 shrink-0" />
+                      <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 font-bold flex items-center gap-1 text-[11px]">
+                        <Layers className="w-3 h-3 text-purple-700" /> {ke}
+                      </span>
+                      <ArrowRight className="w-3 h-3 text-blue-400 shrink-0" />
+                      <span className="px-2 py-0.5 rounded-md bg-teal-100 text-teal-900 font-bold text-[11px]">
+                        {ngan}
+                      </span>
+                      <ArrowRight className="w-3 h-3 text-blue-400 shrink-0" />
+                      <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-950 font-bold flex items-center gap-1 text-[11px]">
+                        <Box className="w-3 h-3 text-amber-700" /> {hop}
+                      </span>
+                      <ArrowRight className="w-3 h-3 text-blue-400 shrink-0" />
+                      <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-950 font-bold flex items-center gap-1 text-[11px]">
+                        <FolderArchive className="w-3 h-3 text-rose-700" /> {hoSo}
+                      </span>
                     </div>
-                    <span className="font-mono text-xs font-bold tracking-widest text-emerald-400">{location.maVach}</span>
-                    <span className="text-[9px] text-gray-400 uppercase font-semibold">CỤC VĂN THƯ VÀ LƯU TRỮ NHÀ NƯỚC</span>
+
+                    {/* 5 Level Cards Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                      {/* Cấp 1: Phòng / Ban / Đơn vị con */}
+                      <div className="bg-gray-50/80 p-3.5 rounded-xl border border-gray-200 text-center flex flex-col justify-between hover:border-blue-300 transition">
+                        <div className="flex items-center justify-center gap-1 mb-1.5">
+                          <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px] font-bold">1</span>
+                          <span className="text-[10px] text-gray-600 uppercase font-bold tracking-wider">Phòng / Ban / Đơn vị con</span>
+                        </div>
+                        <span className="text-xs font-bold text-blue-800 line-clamp-2" title={phongBan}>
+                          {phongBan}
+                        </span>
+                        <span className="text-[9px] text-gray-400 mt-1 font-medium">Đơn vị quản lý hồ sơ</span>
+                      </div>
+
+                      {/* Cấp 2: Kệ */}
+                      <div className="bg-gray-50/80 p-3.5 rounded-xl border border-gray-200 text-center flex flex-col justify-between hover:border-purple-300 transition">
+                        <div className="flex items-center justify-center gap-1 mb-1.5">
+                          <span className="w-4 h-4 rounded-full bg-purple-600 text-white flex items-center justify-center text-[9px] font-bold">2</span>
+                          <span className="text-[10px] text-gray-600 uppercase font-bold tracking-wider">Kệ Lưu Trữ</span>
+                        </div>
+                        <span className="text-xs font-bold text-purple-800 line-clamp-2" title={ke}>
+                          {ke}
+                        </span>
+                        <span className="text-[9px] text-gray-400 mt-1 font-medium">Dãy giá kệ</span>
+                      </div>
+
+                      {/* Cấp 3: Ngăn */}
+                      <div className="bg-gray-50/80 p-3.5 rounded-xl border border-gray-200 text-center flex flex-col justify-between hover:border-teal-300 transition">
+                        <div className="flex items-center justify-center gap-1 mb-1.5">
+                          <span className="w-4 h-4 rounded-full bg-teal-600 text-white flex items-center justify-center text-[9px] font-bold">3</span>
+                          <span className="text-[10px] text-gray-600 uppercase font-bold tracking-wider">Ngăn Kệ</span>
+                        </div>
+                        <span className="text-xs font-bold text-teal-800 line-clamp-2" title={ngan}>
+                          {ngan}
+                        </span>
+                        <span className="text-[9px] text-gray-400 mt-1 font-medium">Tầng ngăn</span>
+                      </div>
+
+                      {/* Cấp 4: Hộp / Cặp */}
+                      <div className="bg-gray-50/80 p-3.5 rounded-xl border border-gray-200 text-center flex flex-col justify-between hover:border-amber-300 transition">
+                        <div className="flex items-center justify-center gap-1 mb-1.5">
+                          <span className="w-4 h-4 rounded-full bg-amber-600 text-white flex items-center justify-center text-[9px] font-bold">4</span>
+                          <span className="text-[10px] text-gray-600 uppercase font-bold tracking-wider">Hộp / Cặp</span>
+                        </div>
+                        <span className="text-xs font-bold text-amber-800 line-clamp-2" title={hop}>
+                          {hop}
+                        </span>
+                        <span className="text-[9px] text-gray-400 mt-1 font-medium">Hộp / cặp lưu trữ</span>
+                      </div>
+
+                      {/* Cấp 5: Hồ sơ */}
+                      <div className="bg-gray-50/80 p-3.5 rounded-xl border border-gray-200 text-center flex flex-col justify-between hover:border-rose-300 transition">
+                        <div className="flex items-center justify-center gap-1 mb-1.5">
+                          <span className="w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-[9px] font-bold">5</span>
+                          <span className="text-[10px] text-gray-600 uppercase font-bold tracking-wider">Hồ Sơ</span>
+                        </div>
+                        <span className="text-xs font-bold text-rose-800 line-clamp-2" title={hoSo}>
+                          {hoSo}
+                        </span>
+                        <span className="text-[9px] text-gray-400 mt-1 font-medium">Hồ sơ tài liệu</span>
+                      </div>
+                    </div>
+
+                    {/* Visual Barcode Display */}
+                    <div className="bg-slate-950 text-white p-5 rounded-xl flex flex-col items-center justify-center space-y-2.5 border border-slate-800 shadow-md">
+                      <div className="h-11 flex items-center justify-center gap-1 px-4 py-1 bg-white/5 rounded-lg">
+                        {Array.from({ length: 48 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={`h-full ${i % 4 === 0 ? 'w-1.5 bg-white' : i % 3 === 0 ? 'w-1 bg-white' : i % 2 === 0 ? 'w-0.5 bg-white' : 'w-1.5 bg-white'}`}
+                          />
+                        ))}
+                      </div>
+                      <span className="font-mono text-xs sm:text-sm font-bold tracking-widest text-emerald-400">
+                        {barcodeText}
+                      </span>
+                      <div className="flex items-center gap-2 text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+                        <span>TỔNG CÔNG TY ĐƯỜNG SẮT VIỆT NAM</span>
+                        <span>•</span>
+                        <span>ĐỊNH VỊ KHO LƯU TRỮ VẬT LÝ 5 CẤP</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-500 text-xs shadow-sm">
-                  Chưa định vị kho vật lý cho hồ sơ này (Đang trong quy trình xử lý).
+                );
+              })() : (
+                <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-500 text-xs shadow-sm space-y-2">
+                  <Archive className="w-8 h-8 text-gray-300 mx-auto" />
+                  <p className="font-medium">Chưa định vị kho vật lý cho hồ sơ này (Đang trong quy trình tiếp nhận &amp; lưu trữ).</p>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditMetadataOpen(true)}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Thiết lập định vị kho 5 cấp</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

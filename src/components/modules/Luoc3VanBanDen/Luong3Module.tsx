@@ -56,11 +56,13 @@ export const Luong3Module: React.FC<Luong3ModuleProps> = ({ currentUser, onOpenV
   // Sơ đồ kho vật lý & Thời hạn bảo quản
   const [retentionPeriod, setRetentionPeriod] = useState<RetentionPeriod>('10 NĂM');
   const [physicalLocation, setPhysicalLocation] = useState<PhysicalLocation>({
-    kho: 'Kho Lưu trữ Trung tâm Số 1',
-    ke: 'Kệ K-01',
+    phongBan: 'Văn phòng Tổng công ty (Phòng Hành chính - Lưu trữ)',
+    ke: 'Kệ K-01 (Văn bản Đến & Chỉ đạo)',
     ngan: 'Ngăn N-04',
-    hop: 'Hộp H-06',
-    maVach: 'HSTL-K1-K01-N04-H06'
+    hop: 'Hộp / Cặp H-06',
+    hoSo: 'Hồ sơ số 01 (HS-01)',
+    maVach: 'VP-K01-N04-H06-HS01',
+    donVi: 'Văn phòng Tổng công ty'
   });
 
   const reloadData = () => {

@@ -43,11 +43,13 @@ export const Luong1LeaderSignedModal: React.FC<Luong1LeaderSignedModalProps> = (
 
   const [retentionPeriod, setRetentionPeriod] = useState<RetentionPeriod>('VĨNH VIỄN');
   const [physicalLocation, setPhysicalLocation] = useState<PhysicalLocation>({
-    kho: 'Kho Lưu trữ Trung tâm Số 1',
-    ke: 'Kệ K-03',
-    ngan: 'Ngăn N-02',
-    hop: 'Hộp H-18',
-    maVach: 'HSTL-K1-K03-N02-H18'
+    phongBan: 'Văn phòng Tổng công ty (Phòng Hành chính - Lưu trữ)',
+    ke: 'Kệ K-01 (Văn bản Đến & Chỉ đạo)',
+    ngan: 'Ngăn N-01',
+    hop: 'Hộp / Cặp H-01',
+    hoSo: 'Hồ sơ số 01 (HS-01)',
+    maVach: 'VP-K01-N01-H01-HS01',
+    donVi: 'Văn phòng Tổng công ty'
   });
 
   const handleSubmit = (e: React.FormEvent) => {

@@ -75,11 +75,13 @@ export const Luong4Module: React.FC<Luong4ModuleProps> = ({ currentUser, onOpenV
   // Retention & Physical Location in HSTL Library
   const [retentionPeriod, setRetentionPeriod] = useState<RetentionPeriod>('VĨNH VIỄN');
   const [physicalLocation, setPhysicalLocation] = useState<PhysicalLocation>({
-    kho: 'Kho Lưu trữ Trung tâm Số 1',
-    ke: 'Kệ K-02',
-    ngan: 'Ngăn N-01',
-    hop: 'Hộp H-02',
-    maVach: 'HSTL-K1-K02-N01-H02'
+    phongBan: 'Văn phòng Tổng công ty (Phòng Hành chính - Lưu trữ)',
+    ke: 'Kệ K-02 (Văn bản Đi NĐ30 & Báo cáo)',
+    ngan: 'Ngăn N-01 (Tầng 1 - Kệ 02)',
+    hop: 'Hộp / Cặp H-04',
+    hoSo: 'Hồ sơ số 01 (HS-01)',
+    maVach: 'VP-K02-N01-H04-HS01',
+    donVi: 'Văn phòng Tổng công ty'
   });
 
   // State for Editing Recipients Modal on existing document
@@ -602,7 +604,7 @@ export const Luong4Module: React.FC<Luong4ModuleProps> = ({ currentUser, onOpenV
 
                 <div className="sm:col-span-2">
                   <span className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Định vị vị trí Kho - Kệ - Ngăn - Hộp:
+                    Định vị vị trí Kho 5 Cấp (Phòng/Ban/Đơn vị con - Kệ - Ngăn - Hộp/Cặp - Hồ sơ):
                   </span>
                   <PhysicalLocationSelector
                     value={physicalLocation}

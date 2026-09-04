@@ -21,8 +21,16 @@ import {
   AlertTriangle,
   X,
   DollarSign,
-  Tag
+  Tag,
+  Box,
+  FolderArchive,
+  Layers,
+  Barcode,
+  ArrowRight,
+  CheckCircle2,
+  Download
 } from 'lucide-react';
+import { STORAGE_HIERARCHY_DEPARTMENTS } from '../../../data/initialData';
 
 interface ThuVienTongHopModuleProps {
   currentUser: UserProfile;
@@ -41,6 +49,12 @@ export const ThuVienTongHopModule: React.FC<ThuVienTongHopModuleProps> = ({
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(Date.now());
   const [restrictedDocAlert, setRestrictedDocAlert] = useState<{ isOpen: boolean; doc?: any }>({ isOpen: false });
+
+  // 5-Level Warehouse Map Navigation State: Phòng/Ban/Đơn vị con -> Kệ -> Ngăn -> Hộp/Cặp -> Hồ sơ
+  const [mapDeptId, setMapDeptId] = useState<string>(STORAGE_HIERARCHY_DEPARTMENTS[0].id);
+  const [mapShelfId, setMapShelfId] = useState<string>(STORAGE_HIERARCHY_DEPARTMENTS[0].shelves[0].id);
+  const [mapCompId, setMapCompId] = useState<string>(STORAGE_HIERARCHY_DEPARTMENTS[0].shelves[0].compartments[0].id);
+  const [selectedMapBoxId, setSelectedMapBoxId] = useState<string | null>(STORAGE_HIERARCHY_DEPARTMENTS[0].shelves[0].compartments[0].boxes[0]?.id || null);
 
   // Listen to Storage updates
   useEffect(() => {
@@ -193,6 +207,73 @@ export const ThuVienTongHopModule: React.FC<ThuVienTongHopModuleProps> = ({
     }
   };
 
+  const handleDownloadDoc = (item: typeof allItems[0]) => {
+    if (!canAccessDocument(item)) {
+      setRestrictedDocAlert({ isOpen: true, doc: item });
+      return;
+    }
+
+    const raw: any = item.raw || {};
+    const fileUrl = raw.fileUrl || raw.scannedFileUrl || raw.draftFileUrl;
+    const fileName = raw.fileName || raw.scannedFileName || raw.draftFileName;
+
+    if (fileUrl && (fileUrl.startsWith('data:') || fileUrl.startsWith('blob:') || fileUrl.startsWith('http'))) {
+      const a = document.createElement('a');
+      a.href = fileUrl;
+      a.download = fileName || `${item.code.replace(/[^a-zA-Z0-9_-]/g, '_')}_HoSo.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+
+    // Xuất tệp hồ sơ dữ liệu chính thức đầy đủ thông tin
+    const exportData = `================================================================================
+TỔNG CÔNG TY ĐƯỜNG SẮT VIỆT NAM (VNR)
+HỆ THỐNG QUẢN LÝ VĂN BẢN VÀ LƯU TRỮ HỒ SƠ ĐIỆN TỬ (HSTL)
+================================================================================
+BẢN TRÍCH XUẤT DỮ LIỆU HỒ SƠ LƯU TRỮ CHÍNH THỨC
+
+• Phân loại luồng: ${item.typeLabel}
+• Mã hồ sơ / Số ký hiệu: ${item.code}
+• Trích yếu nội dung: ${item.trichYeu}
+• Cơ quan / Đơn vị quản lý: ${item.agency || 'Tổng công ty Đường sắt Việt Nam'}
+• Ngày văn bản / lưu trữ: ${item.date}
+• Lĩnh vực: ${item.field || 'Chuyên môn'}
+• Thể loại văn bản: ${item.docType || 'Hồ sơ tài liệu'}
+• Thời hạn bảo quản: ${item.retention}
+• Cấp độ bảo mật: ${item.securityLevel || 'THƯỜNG'}
+
+--------------------------------------------------------------------------------
+TỌA ĐỘ LƯU TRỮ KHO VẬT LÝ (5 CẤP CHUẨN HOÁ):
+• Cấp 1 (Phòng / Ban / Đơn vị con): ${item.location?.phongBan || item.location?.donVi || 'Chưa định vị'}
+• Cấp 2 (Dãy Kệ lưu trữ): ${item.location?.ke || 'N/A'}
+• Cấp 3 (Ngăn Kệ): ${item.location?.ngan || 'N/A'}
+• Cấp 4 (Hộp / Cặp hồ sơ): ${item.location?.hop || 'N/A'}
+• Cấp 5 (Vị trí Hồ sơ trong Hộp): ${item.location?.hoSo || item.code}
+• Mã Barcode / RFID: ${item.location?.maVach || 'N/A'}
+
+--------------------------------------------------------------------------------
+NỘI DUNG VĂN BẢN & SỐ HÓA TOÀN VĂN (OCR):
+${item.ocrText || item.trichYeu}
+
+================================================================================
+Thời điểm trích xuất: ${new Date().toLocaleString('vi-VN')}
+Cán bộ trích xuất: ${currentUser.name} (${currentUser.department} - ${currentUser.position})
+Mã xác thực số: VNR-HSTL-EXPORT-${Date.now()}
+================================================================================`;
+
+    const blob = new Blob([exportData], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(fileName ? fileName.replace(/\.[^/.]+$/, '') : item.code.replace(/[^a-zA-Z0-9_-]/g, '_'))}_DuLieu_HSTL.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const isFiltering =
     searchTerm.trim() !== '' ||
     selectedAgency !== 'ALL' ||
@@ -336,64 +417,347 @@ export const ThuVienTongHopModule: React.FC<ThuVienTongHopModuleProps> = ({
       </div>
 
       {activeTab === 'WAREHOUSE_MAP' ? (
-        /* Sơ đồ kho vật lý trực quan */
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs space-y-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-gray-200 pb-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-amber-600" />
-                Sơ Đồ Không Gian Kho Lưu Trữ Vật Lý Trung Tâm Số 1
-              </h3>
-              <p className="text-xs text-gray-500 mt-0.5 font-medium">
-                Quản lý sức chứa, vị trí Kệ - Ngăn - Hộp và quét mã vạch Barcode/QR định vị tài liệu gốc
-              </p>
-            </div>
-            <div className="flex items-center gap-2 text-xs font-semibold">
-              <span className="flex items-center gap-1 text-emerald-700">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Còn chỗ (82%)
-              </span>
-              <span className="flex items-center gap-1 text-amber-700">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Đã lưu (18%)
-              </span>
-            </div>
-          </div>
+        /* Sơ đồ kho vật lý trực quan 5 CẤP: Phòng / Ban / Đơn vị con → Kệ → Ngăn → Hộp / Cặp → Hồ sơ */
+        (() => {
+          const activeDept = STORAGE_HIERARCHY_DEPARTMENTS.find(d => d.id === mapDeptId) || STORAGE_HIERARCHY_DEPARTMENTS[0];
+          const activeShelf = activeDept.shelves.find(s => s.id === mapShelfId) || activeDept.shelves[0] || { id: '', name: '', compartments: [] };
+          const activeComp = activeShelf.compartments.find(c => c.id === mapCompId) || activeShelf.compartments[0] || { id: '', name: '', boxes: [] };
+          const activeBox = (activeComp.boxes || []).find(b => b.id === selectedMapBoxId) || (activeComp.boxes && activeComp.boxes[0]);
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {['Kệ K-01 (Văn bản Đến)', 'Kệ K-02 (Văn bản Đi NĐ30)', 'Kệ K-03 (Quyết định & Hợp đồng)', 'Kệ K-04 (Hồ sơ Hoàn công & Kỹ thuật)'].map((keName, keIndex) => (
-              <div key={keName} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between border-b border-gray-200 pb-2">
-                  <span className="text-xs font-bold text-slate-900">{keName}</span>
-                  <span className="text-[10px] text-gray-500 font-mono font-bold">4 Ngăn x 8 Hộp</span>
-                </div>
+          // Filter documents matching active box and shelf
+          const docsInActiveBox = allItems.filter(item => {
+            const loc = item.location;
+            if (!loc) return false;
+            const matchDept = !loc.phongBan || loc.phongBan === activeDept.name || (loc.donVi && activeDept.name.includes(loc.donVi));
+            const matchShelf = loc.ke && (loc.ke.includes(activeShelf.id) || activeShelf.name.includes(loc.ke));
+            const matchBox = loc.hop && activeBox && (loc.hop.includes(activeBox.id) || activeBox.name.includes(loc.hop) || loc.hop.replace(/[^a-zA-Z0-9]/g, '').includes(activeBox.id.replace(/[^a-zA-Z0-9]/g, '')));
+            return matchDept && matchShelf && matchBox;
+          });
 
-                <div className="grid grid-cols-2 gap-2">
-                  {[1, 2, 3, 4].map(nganNum => (
-                    <div key={nganNum} className="bg-white border border-gray-200 rounded-lg p-2 text-center hover:border-blue-400 transition shadow-xs">
-                      <div className="text-[10px] font-bold text-slate-700">Ngăn N-0{nganNum}</div>
-                      <div className="mt-1 flex items-center justify-center gap-1">
-                        {[1, 2, 3, 4].map(hopNum => (
-                          <div
-                            key={hopNum}
-                            title={`Hộp H-0${hopNum}: ${hopNum === 1 ? 'Đã chứa 12 tài liệu' : 'Sẵn sàng'}`}
-                            className={`w-3 h-3 rounded-xs ${
-                              (keIndex + nganNum + hopNum) % 3 === 0 ? 'bg-amber-500' : 'bg-emerald-500'
-                            }`}
-                          />
-                        ))}
-                      </div>
+          return (
+            <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs space-y-6">
+              {/* Header with Title and Legend */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-gray-200 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="p-2 rounded-xl bg-amber-500/10 text-amber-700">
+                      <MapPin className="w-5 h-5" />
+                    </span>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">
+                        Sơ Đồ Không Gian Kho Lưu Trữ Vật Lý 5 Cấp
+                      </h3>
+                      <p className="text-xs text-gray-500 font-medium mt-0.5">
+                        Quy chuẩn lưu trữ: <span className="font-bold text-blue-700">Phòng / Ban / Đơn vị con → Kệ → Ngăn → Hộp / Cặp → Hồ sơ</span>
+                      </p>
                     </div>
-                  ))}
+                  </div>
                 </div>
-
-                <div className="pt-2 text-center">
-                  <span className="text-[10px] font-mono text-blue-700 font-bold bg-white px-2 py-1 rounded border border-blue-200 inline-block">
-                    Mã vạch: HSTL-K1-K0{keIndex + 1}
+                <div className="flex items-center gap-3 text-xs font-semibold bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200">
+                  <span className="flex items-center gap-1.5 text-emerald-700">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Còn chỗ trống
+                  </span>
+                  <span className="flex items-center gap-1.5 text-amber-700">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Đang chứa hồ sơ
+                  </span>
+                  <span className="flex items-center gap-1.5 text-blue-700">
+                    <Barcode className="w-3.5 h-3.5" /> Barcode/RFID 5 Cấp
                   </span>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
+
+              {/* Breadcrumb Path of 5 Levels */}
+              <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-slate-50 border border-blue-200 rounded-xl p-3 flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-gray-500 font-semibold">Tọa độ đang chọn (5 Cấp):</span>
+                <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-900 font-bold flex items-center gap-1">
+                  <Building2 className="w-3 h-3" /> {activeDept.name}
+                </span>
+                <ArrowRight className="w-3 h-3 text-blue-400" />
+                <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 font-bold flex items-center gap-1">
+                  <Layers className="w-3 h-3" /> {activeShelf.name}
+                </span>
+                <ArrowRight className="w-3 h-3 text-blue-400" />
+                <span className="px-2 py-0.5 rounded-md bg-teal-100 text-teal-900 font-bold flex items-center gap-1">
+                  <Box className="w-3 h-3" /> {activeComp.name}
+                </span>
+                {activeBox && (
+                  <>
+                    <ArrowRight className="w-3 h-3 text-blue-400" />
+                    <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-950 font-bold flex items-center gap-1">
+                      <FolderArchive className="w-3 h-3" /> {activeBox.name}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {/* LEVEL 1: PHÒNG / BAN / ĐƠN VỊ CON */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-extrabold">1</span>
+                  Cấp 1: Phòng / Ban / Đơn vị con quản lý hồ sơ
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {STORAGE_HIERARCHY_DEPARTMENTS.map(dept => {
+                    const isSelected = dept.id === mapDeptId;
+                    const totalShelves = dept.shelves.length;
+                    const totalBoxes = dept.shelves.reduce((sum, s) => sum + s.compartments.reduce((cSum, c) => cSum + c.boxes.length, 0), 0);
+                    return (
+                      <button
+                        key={dept.id}
+                        onClick={() => {
+                          setMapDeptId(dept.id);
+                          const firstShelf = dept.shelves[0];
+                          if (firstShelf) {
+                            setMapShelfId(firstShelf.id);
+                            const firstComp = firstShelf.compartments[0];
+                            if (firstComp) {
+                              setMapCompId(firstComp.id);
+                              setSelectedMapBoxId(firstComp.boxes[0]?.id || null);
+                            }
+                          }
+                        }}
+                        className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between gap-1.5 ${
+                          isSelected
+                            ? 'bg-blue-50/80 border-blue-600 text-blue-950 ring-2 ring-blue-200 shadow-xs'
+                            : 'bg-white border-gray-200 text-slate-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs line-clamp-1">{dept.name}</span>
+                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-gray-200 text-blue-700">
+                            {dept.code}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-gray-500">
+                          {totalShelves} kệ lưu trữ ({totalBoxes} hộp/cặp)
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* LEVEL 2 & 3: KỆ & NGĂN */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                {/* Level 2: Kệ */}
+                <div className="lg:col-span-5 space-y-2.5">
+                  <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] font-extrabold">2</span>
+                    Cấp 2: Kệ lưu trữ ({activeDept.name})
+                  </label>
+                  <div className="space-y-2">
+                    {activeDept.shelves.map((shelf, idx) => {
+                      const isSelected = shelf.id === mapShelfId;
+                      const totalBoxes = shelf.compartments.reduce((sum, c) => sum + c.boxes.length, 0);
+                      return (
+                        <div
+                          key={shelf.id}
+                          onClick={() => {
+                            setMapShelfId(shelf.id);
+                            const firstComp = shelf.compartments[0];
+                            if (firstComp) {
+                              setMapCompId(firstComp.id);
+                              setSelectedMapBoxId(firstComp.boxes[0]?.id || null);
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border text-left transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-purple-50/80 border-purple-600 ring-2 ring-purple-200 shadow-xs'
+                              : 'bg-gray-50 border-gray-200 hover:bg-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-bold text-slate-900">{shelf.name}</span>
+                            <span className="font-mono text-[10px] font-bold text-purple-700 bg-white px-2 py-0.5 rounded border border-purple-200">
+                              Mã: {shelf.id}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-gray-500">
+                            <span>Sức chứa: {shelf.compartments.length} Ngăn x {totalBoxes} Hộp/Cặp</span>
+                            <span className="text-emerald-700 font-semibold font-mono text-[10px]">
+                              HSTL-K{idx + 1}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Level 3 & 4: Ngăn & Hộp/Cặp */}
+                <div className="lg:col-span-7 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-[10px] font-extrabold">3-4</span>
+                      Cấp 3 &amp; 4: Ngăn &amp; Hộp / Cặp chứa tài liệu ({activeShelf.name})
+                    </label>
+                    <span className="text-[11px] text-gray-500 font-medium">Bấm vào Hộp/Cặp để xem hồ sơ bên trong</span>
+                  </div>
+
+                  {/* Compartment Tabs (Cấp 3) */}
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {activeShelf.compartments.map(comp => {
+                      const isSelected = comp.id === mapCompId;
+                      return (
+                        <button
+                          key={comp.id}
+                          onClick={() => {
+                            setMapCompId(comp.id);
+                            setSelectedMapBoxId(comp.boxes[0]?.id || null);
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-teal-700 text-white shadow-xs'
+                              : 'bg-gray-100 hover:bg-gray-200 text-slate-700 border border-gray-200'
+                          }`}
+                        >
+                          {comp.name} ({comp.boxes.length} Hộp/Cặp)
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Boxes Grid (Cấp 4) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {activeComp.boxes.map(box => {
+                      const isBoxSelected = (selectedMapBoxId === box.id) || (!selectedMapBoxId && activeComp.boxes[0]?.id === box.id);
+                      const dossierCount = box.dossiers ? box.dossiers.length : 1;
+                      return (
+                        <div
+                          key={box.id}
+                          onClick={() => setSelectedMapBoxId(box.id)}
+                          className={`p-3 rounded-xl border text-left transition cursor-pointer relative overflow-hidden flex flex-col justify-between ${
+                            isBoxSelected
+                              ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-300 shadow-sm'
+                              : 'bg-white border-gray-200 hover:border-amber-300 hover:shadow-xs'
+                          }`}
+                        >
+                          {isBoxSelected && (
+                            <div className="absolute top-0 right-0 w-3 h-3 bg-amber-500 rounded-bl-lg"></div>
+                          )}
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-bold text-slate-900 flex items-center gap-1 truncate">
+                                <FolderArchive className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                {box.name}
+                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-900 shrink-0">
+                                {dossierCount} HS
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-gray-500 line-clamp-1 font-medium">
+                              {box.dossiers?.[0]?.title || 'Hồ sơ chuyên ngành'}
+                            </p>
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px] font-mono text-gray-500">
+                            <span>Mã: {box.id}</span>
+                            <span className="text-blue-700 font-bold flex items-center gap-0.5">
+                              Chi tiết →
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* LEVEL 5: HỒ SƠ & TÀI LIỆU CHI TIẾT TRONG HỘP/CẶP */}
+              {activeBox && (
+                <div className="mt-4 border border-amber-200 rounded-xl p-4 bg-amber-50/40 space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-amber-200 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-amber-600 text-white flex items-center justify-center text-[10px] font-extrabold">5</span>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-amber-950 flex items-center gap-1.5">
+                        <FileText className="w-4 h-4 text-amber-700" />
+                        Cấp 5: Danh mục Hồ sơ &amp; Văn bản thực tế trong [{activeBox.name}]
+                      </h4>
+                    </div>
+                    <div className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-white border border-amber-300 text-amber-950 flex items-center gap-1.5 shadow-2xs">
+                      <Barcode className="w-4 h-4 text-blue-700" />
+                      <span>{activeDept.code}-{activeShelf.id.replace(/[^a-zA-Z0-9]/g, '')}-{activeComp.id.replace(/[^a-zA-Z0-9]/g, '')}-{activeBox.id.replace(/[^a-zA-Z0-9]/g, '')}</span>
+                    </div>
+                  </div>
+
+                  {/* List of Dossiers defined in Box */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {(activeBox.dossiers || [{ id: 'HS-01', name: 'Hồ sơ số 01 (HS-01)', title: 'Hồ sơ tài liệu số hóa' }]).map(dossier => (
+                      <div
+                        key={dossier.id}
+                        className="bg-white border border-amber-200/90 rounded-xl p-3 flex items-start gap-3 shadow-2xs"
+                      >
+                        <div className="p-2 rounded-lg bg-amber-50 text-amber-700 shrink-0">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-bold text-xs text-blue-900 font-mono">{dossier.name}</span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              Đang lưu trữ
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-800 font-medium mt-0.5 line-clamp-2">
+                            {dossier.title}
+                          </p>
+                          <div className="flex items-center gap-2 mt-2 text-[10px] text-gray-500 font-mono">
+                            <span>Vị trí 5 cấp:</span>
+                            <span className="font-bold text-slate-700 truncate">
+                              {activeDept.code} ➔ {activeShelf.id} ➔ {activeComp.id} ➔ {activeBox.id} ➔ {dossier.id}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Cross-referenced real documents in this box */}
+                  {docsInActiveBox.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-amber-200/70">
+                      <span className="text-xs font-bold text-slate-900 block mb-2">
+                        Văn bản thực tế liên kết với tọa độ này ({docsInActiveBox.length} tài liệu):
+                      </span>
+                      <div className="space-y-2">
+                        {docsInActiveBox.map(docItem => (
+                          <div
+                            key={docItem.id}
+                            className="bg-white border border-gray-200 rounded-lg p-2.5 flex items-center justify-between gap-3 text-xs hover:border-blue-300 transition"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-blue-700">{docItem.code}</span>
+                                <span className="text-[10px] text-gray-500 font-sans">{docItem.agency}</span>
+                              </div>
+                              <div className="text-slate-800 text-xs font-medium truncate mt-0.5">
+                                {docItem.trichYeu}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                onClick={() => handleOpenDoc(docItem)}
+                                className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-xs font-bold inline-flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                Xem Hồ Sơ
+                              </button>
+                              <button
+                                onClick={() => handleDownloadDoc(docItem)}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold inline-flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                                title="Tải về dữ liệu / tệp tin hồ sơ này"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                Tải Về
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()
       ) : (
         /* Repository Item Table */
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
@@ -650,25 +1014,48 @@ export const ThuVienTongHopModule: React.FC<ThuVienTongHopModuleProps> = ({
                             {item.retention || '10 NĂM'}
                           </span>
                           {item.location && (
-                            <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-1 font-mono font-medium">
-                              <MapPin className="w-2.5 h-2.5 text-gray-400" />
-                              {item.location.ke} - {item.location.ngan} - {item.location.hop}
+                            <div className="text-[10px] text-gray-500 mt-1 flex flex-col gap-0.5 font-mono">
+                              <div
+                                className="flex items-center gap-1 text-slate-700 font-medium truncate max-w-[210px] cursor-help"
+                                title={`[6 CẤP LƯU TRỮ VẬT LÝ]\n1. Đơn vị: ${item.location.donVi || 'TCT ĐSVN'}\n2. Khu vực: ${item.location.khuVuc || 'Khu vực A'}\n3. Kệ: ${item.location.ke || 'K-01'}\n4. Ngăn: ${item.location.ngan || 'N-01'}\n5. Hộp: ${item.location.hop || 'H-01'}\n6. Hồ sơ: ${item.location.hoSo || 'HS-01'}\nMã vạch: ${item.location.maVach || 'N/A'}`}
+                              >
+                                <MapPin className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                <span>{item.location.ke} · {item.location.ngan} · {item.location.hop}</span>
+                              </div>
+                              {item.location.hoSo && (
+                                <span className="text-[9px] text-amber-800 font-semibold truncate max-w-[210px]">
+                                  📁 {item.location.hoSo}
+                                </span>
+                              )}
                             </div>
                           )}
                         </td>
 
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => handleOpenDoc(item)}
-                            className={`px-3 py-1.5 rounded-lg font-bold text-xs inline-flex items-center gap-1 cursor-pointer transition shadow-2xs ${
-                              hasAccess 
-                                ? 'bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800'
-                                : 'bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800'
-                            }`}
-                          >
-                            {hasAccess ? <Eye className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                            {hasAccess ? 'Xem Hồ Sơ' : 'Bị Khóa Quyền Xem'}
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleOpenDoc(item)}
+                              className={`px-3 py-1.5 rounded-lg font-bold text-xs inline-flex items-center gap-1 cursor-pointer transition shadow-2xs ${
+                                hasAccess 
+                                  ? 'bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800'
+                                  : 'bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800'
+                              }`}
+                              title={hasAccess ? 'Xem chi tiết hồ sơ' : 'Tài liệu mật bị hạn chế quyền truy cập'}
+                            >
+                              {hasAccess ? <Eye className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                              {hasAccess ? 'Xem Hồ Sơ' : 'Bị Khóa Quyền Xem'}
+                            </button>
+                            {hasAccess && (
+                              <button
+                                onClick={() => handleDownloadDoc(item)}
+                                className="px-2.5 py-1.5 rounded-lg font-bold text-xs inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 transition cursor-pointer shadow-2xs"
+                                title="Tải về dữ liệu / tệp tin hồ sơ này"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Tải Về</span>
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

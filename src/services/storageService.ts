@@ -31,6 +31,7 @@ import {
 const KEYS = {
   BRAND: 'hstl_win12_brand_config',
   CURRENT_USER: 'hstl_win12_current_user',
+  IS_AUTHENTICATED: 'hstl_win12_is_authenticated',
   EXISTING_DOCS: 'hstl_win12_existing_docs',
   DRAFTS: 'hstl_win12_drafts',
   INCOMING: 'hstl_win12_incoming_docs',
@@ -75,6 +76,34 @@ export class StorageService {
   static setCurrentUser(user: UserProfile): void {
     localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(user));
     window.dispatchEvent(new CustomEvent('hstl_state_change', { detail: { type: 'user' } }));
+  }
+
+  // Authentication Status
+  static isAuthenticated(): boolean {
+    try {
+      const val = localStorage.getItem(KEYS.IS_AUTHENTICATED);
+      return val === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  static setAuthenticated(status: boolean): void {
+    try {
+      localStorage.setItem(KEYS.IS_AUTHENTICATED, status ? 'true' : 'false');
+      window.dispatchEvent(new CustomEvent('hstl_state_change', { detail: { type: 'auth', isAuthenticated: status } }));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  static login(user: UserProfile): void {
+    StorageService.setCurrentUser(user);
+    StorageService.setAuthenticated(true);
+  }
+
+  static logout(): void {
+    StorageService.setAuthenticated(false);
   }
 
   // Luồng 1: Existing Docs
@@ -145,7 +174,18 @@ export class StorageService {
   static getDrafts(): DraftDossier[] {
     try {
       const data = localStorage.getItem(KEYS.DRAFTS);
-      if (data) return JSON.parse(data);
+      if (data) {
+        const parsed: DraftDossier[] = JSON.parse(data);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const hasDraft003 = parsed.some(d => d.id === 'draft-003');
+          if (!hasDraft003) {
+            const merged = [...INITIAL_DRAFTS, ...parsed.filter(p => !INITIAL_DRAFTS.some(i => i.id === p.id))];
+            this.saveDrafts(merged);
+            return merged;
+          }
+          return parsed;
+        }
+      }
     } catch (e) {
       console.error(e);
     }

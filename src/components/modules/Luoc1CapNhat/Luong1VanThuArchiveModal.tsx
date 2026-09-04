@@ -38,11 +38,13 @@ export const Luong1VanThuArchiveModal: React.FC<Luong1VanThuArchiveModalProps> =
   );
   const [physicalLocation, setPhysicalLocation] = useState<PhysicalLocation>(
     doc.physicalLocation || {
-      kho: 'Kho Lưu trữ Trung tâm Số 1',
-      ke: 'Kệ K-01',
+      phongBan: 'Văn phòng Tổng công ty (Phòng Hành chính - Lưu trữ)',
+      ke: 'Kệ K-01 (Văn bản Đến & Chỉ đạo)',
       ngan: 'Ngăn N-01',
-      hop: 'Hộp H-01',
-      maVach: `HSTL-K1-K01-N01-H01-${doc.soKyHieu.replace(/[^a-zA-Z0-9]/g, '')}`
+      hop: 'Hộp / Cặp H-01',
+      hoSo: 'Hồ sơ số 01 (HS-01)',
+      maVach: `VP-K01-N01-H01-${doc.soKyHieu.replace(/[^a-zA-Z0-9]/g, '')}`,
+      donVi: 'Văn phòng Tổng công ty'
     }
   );
 

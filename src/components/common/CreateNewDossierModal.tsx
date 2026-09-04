@@ -71,11 +71,13 @@ export const CreateNewDossierModal: React.FC<CreateNewDossierModalProps> = ({
   // Archive metadata (for stamped documents)
   const [retentionPeriod, setRetentionPeriod] = useState<RetentionPeriod>('VĨNH VIỄN');
   const [physicalLocation, setPhysicalLocation] = useState<PhysicalLocation>({
-    kho: 'Kho Lưu trữ Tổng Hợp Số 1',
-    ke: 'Kệ K-01',
-    ngan: 'Ngăn N-03',
-    hop: 'Hộp H-08',
-    maVach: 'HSTL-K1-K01-N03-H08'
+    phongBan: 'Văn phòng Tổng công ty (Phòng Hành chính - Lưu trữ)',
+    ke: 'Kệ K-01 (Văn bản Đến & Chỉ đạo)',
+    ngan: 'Ngăn N-01 (Tầng 1 - Kệ 01)',
+    hop: 'Hộp / Cặp H-01',
+    hoSo: 'Hồ sơ số 01 (HS-01)',
+    maVach: 'VP-K01-N01-H01-HS01',
+    donVi: 'Văn phòng Tổng công ty'
   });
 
   // Attached File & OCR
@@ -570,7 +572,7 @@ export const CreateNewDossierModal: React.FC<CreateNewDossierModalProps> = ({
             <div className="bg-white border border-emerald-200 rounded-xl p-4 shadow-xs space-y-3">
               <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
                 <Archive className="w-4 h-4 text-emerald-700" />
-                3. Tọa độ lưu trữ Kho vật lý (Kho ➔ Kệ ➔ Ngăn ➔ Hộp)
+                3. Tọa độ lưu trữ Kho vật lý 5 Cấp (Phòng / Ban / Đơn vị con ➔ Kệ ➔ Ngăn ➔ Hộp / Cặp ➔ Hồ sơ)
               </h4>
               <PhysicalLocationSelector
                 value={physicalLocation}

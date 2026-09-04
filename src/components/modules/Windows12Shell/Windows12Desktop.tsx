@@ -9,6 +9,9 @@ import { Luong4Module } from '../Luoc4VanBanDi/Luong4Module';
 import { ThuVienTongHopModule } from '../ThuVienHSTL/ThuVienTongHopModule';
 import { SettingsPersonalizationModal } from './SettingsPersonalizationModal';
 import { DocumentViewerModal } from '../../common/DocumentViewerModal';
+import { UnifiedChatbotAndMessengerModal } from '../../common/UnifiedChatbotAndMessengerModal';
+import { UserChatService } from '../../../services/userChatService';
+import { getHeaderGradient } from '../../../utils/themeUtils';
 import { 
   Layers, 
   FolderArchive, 
@@ -29,10 +32,18 @@ import {
   Lock,
   UserCheck,
   Building2,
-  Users
+  Users,
+  Bot,
+  MessageSquare,
+  Zap,
+  LogOut
 } from 'lucide-react';
 
-export const Windows12Desktop: React.FC = () => {
+interface Windows12DesktopProps {
+  onLogout?: () => void;
+}
+
+export const Windows12Desktop: React.FC<Windows12DesktopProps> = ({ onLogout }) => {
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => StorageService.getCurrentUser());
   const [allUsers, setAllUsers] = useState<UserProfile[]>(() => StorageService.getUsers());
   const [branding, setBranding] = useState<BrandConfig>(StorageService.getBrandConfig());
@@ -50,9 +61,15 @@ export const Windows12Desktop: React.FC = () => {
   const [draftDocs, setDraftDocs] = useState<DraftDossier[]>(() => StorageService.getDrafts());
   const notifRef = useRef<HTMLDivElement>(null);
 
+  // Assistant & Messenger Modal state
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [assistantInitialTab, setAssistantInitialTab] = useState<'AI_CHAT' | 'USER_CHAT'>('AI_CHAT');
+  const [userChatUnreadCount, setUserChatUnreadCount] = useState<number>(() => UserChatService.getUnreadCount(currentUser.id));
+
   const refreshData = () => {
     setExistingDocs(StorageService.getExistingDocs());
     setDraftDocs(StorageService.getDrafts());
+    setUserChatUnreadCount(UserChatService.getUnreadCount(StorageService.getCurrentUser().id));
   };
 
   useEffect(() => {
@@ -70,8 +87,13 @@ export const Windows12Desktop: React.FC = () => {
       refreshData();
     };
 
+    const handleChatUpdate = () => {
+      setUserChatUnreadCount(UserChatService.getUnreadCount(StorageService.getCurrentUser().id));
+    };
+
     window.addEventListener('hstl_state_change', handleStateChange);
     window.addEventListener('storage', handleStateChange);
+    window.addEventListener('hstl_user_chat_update', handleChatUpdate);
 
     // Close notifications when clicking outside
     const handleClickOutside = (evt: MouseEvent) => {
@@ -84,6 +106,7 @@ export const Windows12Desktop: React.FC = () => {
     return () => {
       window.removeEventListener('hstl_state_change', handleStateChange);
       window.removeEventListener('storage', handleStateChange);
+      window.removeEventListener('hstl_user_chat_update', handleChatUpdate);
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
@@ -281,8 +304,11 @@ export const Windows12Desktop: React.FC = () => {
 
   return (
     <div className="relative w-screen h-[100dvh] overflow-hidden bg-[#f1f5f9] flex flex-col font-sans">
-      {/* Top Corporate Blue Header */}
-      <header className="relative z-30 bg-gradient-to-r from-[#003882] via-[#094ba1] to-[#002f70] text-white px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between shadow-md border-b border-blue-400/20 shrink-0">
+      {/* Top Corporate Header - Synchronized with Branding Accent Color */}
+      <header 
+        className="relative z-30 text-white px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between shadow-md border-b border-white/20 shrink-0 transition-all duration-300"
+        style={{ background: getHeaderGradient(branding.primaryAccent || '#003882') }}
+      >
         {/* Left: Mobile Drawer Button + Tên công ty & Tiêu đề phần mềm */}
         <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
           {/* Hamburger toggle on mobile */}
@@ -307,9 +333,8 @@ export const Windows12Desktop: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Chuông thông báo Trưởng phòng & Thông tin tài khoản */}
-        <div className="flex items-center gap-2 shrink-0">
-          
+        {/* Right: Chuông thông báo & Thông tin tài khoản */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* 🔔 Notification Bell Button with Badge */}
           <div className="relative" ref={notifRef}>
             <button
@@ -452,6 +477,19 @@ export const Windows12Desktop: React.FC = () => {
               </select>
             </div>
           </div>
+
+          {/* Logout Button to return to Login Page */}
+          <button
+            onClick={() => {
+              StorageService.logout();
+              if (onLogout) onLogout();
+            }}
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg bg-white/10 hover:bg-rose-600/90 active:bg-rose-700 text-white border border-white/20 transition cursor-pointer text-[10px] sm:text-xs font-semibold shadow-xs shrink-0"
+            title="Đăng xuất khỏi hệ thống & quay về trang đăng nhập"
+          >
+            <LogOut className="w-3.5 h-3.5 text-white" />
+            <span className="hidden sm:inline">Đăng xuất</span>
+          </button>
         </div>
       </header>
 
@@ -460,7 +498,7 @@ export const Windows12Desktop: React.FC = () => {
         {/* Desktop Left Sidebar (Visible on md+) */}
         <aside className="hidden md:flex w-64 lg:w-72 bg-white border-r border-gray-200/90 flex-col justify-between shadow-xs shrink-0 z-10">
           {/* Menu Items List */}
-          <div className="p-3.5 space-y-2 overflow-y-auto">
+          <div className="flex-1 min-h-0 p-3.5 space-y-2 overflow-y-auto">
             <div className="px-3 pt-1 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
               <span>Danh Mục Nghiệp Vụ</span>
               <span className="text-[9px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded-full font-mono">5 Mục</span>
@@ -518,6 +556,87 @@ export const Windows12Desktop: React.FC = () => {
                   </button>
                 );
               })}
+            </div>
+
+            {/* Tiện ích AI & Tin nhắn trao đổi */}
+            <div className="pt-2.5 border-t border-gray-200/80 space-y-1.5">
+              <div className="px-3 pt-0.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                <span>Trợ Lý &amp; Tin Nhắn</span>
+                <span className="text-[9px] font-semibold text-cyan-600 bg-cyan-50 px-1.5 py-0.2 rounded-full font-mono">Trực Tuyến</span>
+              </div>
+
+              {/* 🤖 Button: Trợ lý AI Qwen 2.5 */}
+              <button
+                onClick={() => {
+                  setAssistantInitialTab('AI_CHAT');
+                  setIsAssistantOpen(true);
+                }}
+                className="w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-all cursor-pointer group relative border border-cyan-200/80 bg-gradient-to-r from-cyan-50/60 via-sky-50/40 to-blue-50/50 hover:from-cyan-100/90 hover:to-sky-100/80 text-slate-800 shadow-xs hover:shadow-sm"
+                title="Trợ lý AI Qwen 2.5 - Tra cứu hồ sơ qua Ollama trên máy chủ IIS"
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="p-2 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                    <Bot className="w-4 h-4 stroke-[2.2]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-900 group-hover:text-cyan-900 leading-tight">
+                        Trợ Lý AI Qwen 2.5
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-cyan-800/80 font-medium truncate leading-tight mt-0.5">
+                      Tra cứu nhanh HSTL (IIS)
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0 ml-1.5">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold bg-cyan-100 text-cyan-800 border border-cyan-300 font-mono">
+                    RAG AI
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-400 group-hover:translate-x-0.5 transition-transform" />
+                </div>
+              </button>
+
+              {/* 💬 Button: Nhắn Tin Trực Tuyến */}
+              <button
+                onClick={() => {
+                  setAssistantInitialTab('USER_CHAT');
+                  setIsAssistantOpen(true);
+                }}
+                className="w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-all cursor-pointer group relative border border-emerald-200/80 bg-gradient-to-r from-emerald-50/60 via-teal-50/40 to-green-50/50 hover:from-emerald-100/90 hover:to-teal-100/80 text-slate-800 shadow-xs hover:shadow-sm"
+                title="Nhắn tin trực tuyến trao đổi công việc & gửi kèm hồ sơ"
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-xs group-hover:scale-105 transition-transform shrink-0 relative">
+                    <MessageSquare className="w-4 h-4 stroke-[2.2]" />
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-300 border border-white" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-900 leading-tight">
+                        Nhắn Tin Trực Tuyến
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-emerald-800/80 font-medium truncate leading-tight mt-0.5">
+                      Trao đổi &amp; Gửi kèm hồ sơ
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0 ml-1.5">
+                  {userChatUnreadCount > 0 ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-rose-500 text-white shadow-xs animate-pulse">
+                      {userChatUnreadCount} mới
+                    </span>
+                  ) : (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Online
+                    </span>
+                  )}
+                  <ChevronRight className="w-3.5 h-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                </div>
+              </button>
             </div>
           </div>
 
@@ -621,6 +740,65 @@ export const Windows12Desktop: React.FC = () => {
                     </button>
                   );
                 })}
+                {/* Trợ lý AI & Nhắn tin trên mobile drawer */}
+                <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                  <div className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+                    <span>Trợ Lý &amp; Giao Tiếp</span>
+                    <span className="text-[9px] font-semibold text-cyan-600 font-mono">Trực tuyến</span>
+                  </div>
+
+                  {/* AI Qwen */}
+                  <button
+                    onClick={() => {
+                      setAssistantInitialTab('AI_CHAT');
+                      setIsAssistantOpen(true);
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between p-2.5 rounded-xl text-left bg-cyan-50/80 border border-cyan-200 text-slate-800 transition cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="p-2 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-2xs shrink-0">
+                        <Bot className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-900">Trợ Lý AI Qwen 2.5</div>
+                        <div className="text-[10px] text-cyan-700 truncate">Tra cứu nhanh HSTL (IIS)</div>
+                      </div>
+                    </div>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold bg-cyan-100 text-cyan-800 border border-cyan-300 font-mono">
+                      RAG AI
+                    </span>
+                  </button>
+
+                  {/* User Chat */}
+                  <button
+                    onClick={() => {
+                      setAssistantInitialTab('USER_CHAT');
+                      setIsAssistantOpen(true);
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between p-2.5 rounded-xl text-left bg-emerald-50/80 border border-emerald-200 text-slate-800 transition cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-2xs shrink-0">
+                        <MessageSquare className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-900">Nhắn Tin Trực Tuyến</div>
+                        <div className="text-[10px] text-emerald-700 truncate">Trao đổi &amp; Gửi kèm hồ sơ</div>
+                      </div>
+                    </div>
+                    {userChatUnreadCount > 0 ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-rose-500 text-white animate-pulse">
+                        {userChatUnreadCount} mới
+                      </span>
+                    ) : (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        Online
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="p-3 border-t border-gray-200 bg-gray-50">
@@ -750,6 +928,51 @@ export const Windows12Desktop: React.FC = () => {
         onDocumentUpdated={(updated) => {
           setViewerItem(updated);
           refreshData();
+        }}
+      />
+
+      {/* Floating Fast Launcher for AI Qwen 2.5 & Online Chat */}
+      <div className="fixed bottom-16 md:bottom-5 right-4 z-40 flex items-center gap-2">
+        <button
+          onClick={() => {
+            setAssistantInitialTab('AI_CHAT');
+            setIsAssistantOpen(true);
+          }}
+          className="flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-[#003882] via-[#0b5bb5] to-[#002b66] text-white font-bold text-xs shadow-xl hover:shadow-2xl border border-white/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+          title="Mở Trợ lý AI Qwen 2.5 & Tìm kiếm nhanh tên tài liệu (Ollama / IIS)"
+        >
+          <Bot className="w-4 h-4 text-cyan-300 animate-pulse" />
+          <span className="hidden sm:inline">AI Qwen 2.5 Tra cứu</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setAssistantInitialTab('USER_CHAT');
+            setIsAssistantOpen(true);
+          }}
+          className="relative p-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xl hover:shadow-2xl border border-white/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+          title="Nhắn tin trực tuyến trao đổi công việc"
+        >
+          <MessageSquare className="w-4 h-4 text-white" />
+          {userChatUnreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 flex h-4.5 min-w-4.5 px-1 items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-black border-2 border-white shadow-sm animate-pulse">
+              {userChatUnreadCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Unified AI Chatbot & Online User Messenger Modal */}
+      <UnifiedChatbotAndMessengerModal
+        isOpen={isAssistantOpen}
+        onClose={() => setIsAssistantOpen(false)}
+        currentUser={currentUser}
+        allUsers={allUsers}
+        initialTab={assistantInitialTab}
+        onOpenViewer={(doc, kw, tab) => {
+          setViewerItem(doc);
+          setViewerSearchKeyword(kw || '');
+          if (tab) setViewerInitialTab(tab);
         }}
       />
     </div>

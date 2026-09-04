@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AssignedTask, UserProfile, TaskCollaborator, TaskPriority, TaskStatus } from '../../../types';
 import { StorageService } from '../../../services/storageService';
 import { SAMPLE_USERS } from '../../../data/initialData';
@@ -29,7 +29,8 @@ import {
   AlertCircle,
   ChevronRight,
   ArrowRight,
-  UserPlus
+  UserPlus,
+  BellRing
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -57,17 +58,76 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
   const [evaluatingTask, setEvaluatingTask] = useState<AssignedTask | null>(null);
   const [viewingTask, setViewingTask] = useState<AssignedTask | null>(null);
 
+  // Phân quyền giao việc & lựa chọn Người chủ trì:
+  // - Giám đốc và Phó Giám đốc: Được chọn toàn bộ người trong công ty
+  // - Trưởng phòng: Chỉ được chọn phó phòng hoặc nhân viên phòng mình
+  const isCompanyLeader =
+    currentUser.role === 'LANH_DAO' ||
+    currentUser.role === 'ADMIN' ||
+    currentUser.roleTitle?.toLowerCase().includes('giám đốc') ||
+    currentUser.department?.toLowerCase().includes('tổng giám đốc');
+
+  const isDeptLeader =
+    currentUser.role === 'TRUONG_PHONG' ||
+    currentUser.roleTitle?.toLowerCase().includes('trưởng phòng') ||
+    currentUser.roleTitle?.toLowerCase().includes('trưởng ban');
+
+  // Danh sách toàn bộ nhân sự trong hệ thống
+  const allUsers = useMemo(() => {
+    return StorageService.getUsers();
+  }, []);
+
+  // Lọc danh sách ứng viên Người chủ trì dựa trên thẩm quyền của Lãnh đạo giao việc
+  const eligibleAssignees = useMemo(() => {
+    if (isCompanyLeader) {
+      // Giám đốc và Phó Giám đốc: Được chọn toàn bộ người trong công ty
+      return allUsers;
+    }
+    if (isDeptLeader) {
+      // Trưởng phòng: Chỉ được chọn phó phòng hoặc nhân viên/chuyên viên phòng mình
+      return allUsers.filter(u => {
+        const isSameDept = u.department?.trim().toLowerCase() === currentUser.department?.trim().toLowerCase();
+        const isSelf = u.id === currentUser.id;
+        if (!isSameDept || isSelf) return false;
+
+        // Chỉ chọn phó phòng hoặc nhân viên / chuyên viên / kỹ sư / cán bộ
+        const isViceOrStaff =
+          u.role === 'CHUYEN_VIEN' ||
+          u.role === 'VAN_THU' ||
+          u.roleTitle.toLowerCase().includes('phó') ||
+          u.roleTitle.toLowerCase().includes('chuyên viên') ||
+          u.roleTitle.toLowerCase().includes('nhân viên') ||
+          u.roleTitle.toLowerCase().includes('kỹ sư') ||
+          u.roleTitle.toLowerCase().includes('cán bộ');
+
+        return isViceOrStaff;
+      });
+    }
+    // Mặc định dự phòng nếu vai trò khác
+    return allUsers.filter(u => u.id !== currentUser.id);
+  }, [allUsers, isCompanyLeader, isDeptLeader, currentUser]);
+
+  // Nhóm theo phòng ban khi Giám đốc / Phó Giám đốc chọn nhân sự toàn công ty
+  const assigneesByDept = useMemo<Record<string, UserProfile[]>>(() => {
+    const map: Record<string, UserProfile[]> = {};
+    eligibleAssignees.forEach(u => {
+      const dept = u.department || 'Đơn vị khác';
+      if (!map[dept]) map[dept] = [];
+      map[dept].push(u);
+    });
+    return map;
+  }, [eligibleAssignees]);
+
   // Form State: Create Task (Lãnh đạo giao việc - mặc định tài khoản đang đăng nhập)
   const isLeader = currentUser.role === 'LANH_DAO' || currentUser.role === 'TRUONG_PHONG' || currentUser.role === 'ADMIN';
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDesc, setTaskDesc] = useState('');
   const [taskPriority, setTaskPriority] = useState<TaskPriority>('KHAN');
-  const [taskField, setTaskField] = useState('Kỹ thuật - Hạ tầng');
   const [taskDeadline, setTaskDeadline] = useState(
     new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
   );
   const [taskLeaderDirective, setTaskLeaderDirective] = useState('');
-  const [primaryAssigneeId, setPrimaryAssigneeId] = useState('user_cv_1');
+  const [primaryAssigneeId, setPrimaryAssigneeId] = useState('');
   const [attachedFile, setAttachedFile] = useState<{ name: string; size: string } | null>(null);
 
   // Form State: Primary Assignee selects Collaborators (Người chủ trì chọn người phối hợp)
@@ -100,7 +160,7 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
     }
 
     const leader = currentUser;
-    const assignee = SAMPLE_USERS.find(u => u.id === primaryAssigneeId);
+    const assignee = allUsers.find(u => u.id === primaryAssigneeId) || SAMPLE_USERS.find(u => u.id === primaryAssigneeId);
 
     if (!assignee) {
       alert('Không tìm thấy người chủ trì được chọn!');
@@ -114,7 +174,6 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
       title: taskTitle.trim(),
       description: taskDesc.trim(),
       priority: taskPriority,
-      field: taskField,
       deadline: taskDeadline,
       assignedById: leader.id,
       assignedByName: leader.name,
@@ -140,6 +199,7 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
     setTaskTitle('');
     setTaskDesc('');
     setTaskLeaderDirective('');
+    setPrimaryAssigneeId('');
     setAttachedFile(null);
 
     try {
@@ -299,12 +359,92 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
 
   // Statistics
   const totalCount = tasks.length;
-  const inProgressCount = tasks.filter(t => t.status === 'IN_PROGRESS' || t.status === 'COORDINATING' || t.status === 'ASSIGNED').length;
+  const inProgressCount = tasks.filter(t => t.status === 'IN_PROGRESS' || t.status === 'COORDINATING').length;
   const pendingReviewCount = tasks.filter(t => t.status === 'COMPLETED_PENDING_REVIEW').length;
   const completedCount = tasks.filter(t => t.status === 'COMPLETED').length;
 
+  // Kiểm tra công việc mới được giao cho tài khoản hiện tại (status === 'ASSIGNED')
+  const myNewAssignedTasks = useMemo(() => {
+    return tasks.filter(t => 
+      (t.primaryAssigneeId === currentUser.id || t.collaborators?.some(c => c.userId === currentUser.id)) && 
+      t.status === 'ASSIGNED'
+    );
+  }, [tasks, currentUser.id]);
+
+  // Kiểm tra toàn bộ công việc mới được giao trong hệ thống
+  const allNewAssignedTasks = useMemo(() => {
+    return tasks.filter(t => t.status === 'ASSIGNED');
+  }, [tasks]);
+
+  const assignedCount = allNewAssignedTasks.length;
+
   return (
     <div className="space-y-5">
+      {/* Banner cảnh báo trực quan khi có công việc mới được giao */}
+      {myNewAssignedTasks.length > 0 ? (
+        <div className="bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-800 rounded-2xl p-4 text-white shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-3 border-2 border-blue-300 animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center shrink-0 border border-white/30 shadow-inner">
+              <BellRing className="w-6 h-6 text-white animate-bounce" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider bg-white text-blue-950 px-2.5 py-0.5 rounded-full shadow-xs">
+                  THÔNG BÁO GIAO VIỆC CHO BẠN
+                </span>
+                <span className="text-xs font-bold text-blue-100">
+                  Lãnh đạo vừa giao {myNewAssignedTasks.length} công việc mới cho bạn ({currentUser.name})!
+                </span>
+              </div>
+              <p className="text-xs text-white/95 mt-1 font-medium leading-relaxed">
+                Nhiệm vụ mới đang chờ tiếp nhận: <span className="font-bold underline">{myNewAssignedTasks[0]?.title}</span>{myNewAssignedTasks.length > 1 ? ` và ${myNewAssignedTasks.length - 1} nhiệm vụ khác.` : '.'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setStatusFilter('ASSIGNED');
+              setSearchTerm('');
+            }}
+            className="px-4 py-2.5 rounded-xl bg-white text-blue-950 hover:bg-blue-50 text-xs font-extrabold shadow-sm transition shrink-0 cursor-pointer flex items-center gap-2 self-start md:self-auto"
+          >
+            <span>Xem ngay danh sách công việc lãnh đạo giao ({myNewAssignedTasks.length})</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      ) : allNewAssignedTasks.length > 0 ? (
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 rounded-2xl p-4 text-white shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-3 border border-indigo-400/50 animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0 border border-white/20">
+              <BellRing className="w-6 h-6 text-blue-300 animate-bounce" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider bg-blue-500 text-white px-2.5 py-0.5 rounded-full shadow-xs">
+                  CÔNG VIỆC MỚI ĐƯỢC LÃNH ĐẠO GIAO
+                </span>
+                <span className="text-xs font-bold text-blue-200">
+                  Có {allNewAssignedTasks.length} nhiệm vụ Lãnh đạo vừa giao trong hệ thống đang chờ cán bộ tiếp nhận!
+                </span>
+              </div>
+              <p className="text-xs text-white/80 mt-1 font-medium leading-relaxed">
+                Được giao cho: <span className="font-semibold text-white">{allNewAssignedTasks.map(t => `${t.primaryAssigneeName} (${t.code})`).slice(0, 2).join(', ')}{allNewAssignedTasks.length > 2 ? '...' : ''}</span>. (Đang xem với tài khoản: {currentUser.name} - {currentUser.roleTitle})
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setStatusFilter('ASSIGNED');
+              setSearchTerm('');
+            }}
+            className="px-4 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-blue-50 text-xs font-extrabold shadow-sm transition shrink-0 cursor-pointer flex items-center gap-2 self-start md:self-auto"
+          >
+            <span>Xem ngay danh sách công việc lãnh đạo giao ({allNewAssignedTasks.length})</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      ) : null}
+
       {/* Header & Metric Cards */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-200 pb-4">
@@ -315,7 +455,7 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
               </span>
               <div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  Quản lý Giao việc & Điều hành Nhiệm vụ
+                  Quản lý giao việc
                   <span className="text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full">
                     Quy trình Lãnh đạo ➔ Chủ trì ➔ Phối hợp
                   </span>
@@ -328,7 +468,10 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
           </div>
 
           <button
-            onClick={() => setIsCreatingTask(true)}
+            onClick={() => {
+              setPrimaryAssigneeId('');
+              setIsCreatingTask(true);
+            }}
             className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 shadow-sm transition cursor-pointer shrink-0"
           >
             <Plus className="w-4 h-4" />
@@ -397,6 +540,19 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
               Tất cả ({totalCount})
             </button>
             <button
+              onClick={() => setStatusFilter('ASSIGNED')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                statusFilter === 'ASSIGNED' ? 'bg-white text-blue-900 shadow-xs' : 'text-gray-600 hover:text-slate-900'
+              }`}
+            >
+              <span>Mới giao</span>
+              <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${
+                assignedCount > 0 ? 'bg-blue-600 text-white animate-pulse' : 'bg-gray-200 text-gray-700'
+              }`}>
+                {assignedCount}
+              </span>
+            </button>
+            <button
               onClick={() => setStatusFilter('IN_PROGRESS')}
               className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
                 statusFilter === 'IN_PROGRESS' ? 'bg-white text-blue-900 shadow-xs' : 'text-gray-600 hover:text-slate-900'
@@ -450,11 +606,15 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
             const hasCollabs = task.collaborators && task.collaborators.length > 0;
             const isCompleted = task.status === 'COMPLETED';
             const isPendingReview = task.status === 'COMPLETED_PENDING_REVIEW';
+            const isNewAssigned = task.status === 'ASSIGNED';
+            const isAssignedToMe = task.primaryAssigneeId === currentUser.id || task.collaborators?.some(c => c.userId === currentUser.id);
 
             return (
               <div 
                 key={task.id}
                 className={`bg-white border rounded-2xl p-5 shadow-xs transition hover:shadow-md ${
+                  isNewAssigned && isAssignedToMe ? 'border-blue-400 bg-blue-50/20 border-l-4 border-l-blue-600 shadow-sm ring-1 ring-blue-300' :
+                  isNewAssigned ? 'border-blue-300 bg-blue-50/10 border-l-4 border-l-blue-500' :
                   isCompleted ? 'border-emerald-200' :
                   isPendingReview ? 'border-amber-300 bg-amber-50/20' :
                   task.priority === 'HOA_TOC' ? 'border-rose-300' :
@@ -468,6 +628,14 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                       <span className="font-mono font-bold text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 border border-slate-200">
                         {task.code}
                       </span>
+
+                      {/* Flag for newly assigned task */}
+                      {isNewAssigned && isAssignedToMe && (
+                        <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-blue-600 text-white flex items-center gap-1 shadow-xs animate-pulse">
+                          <BellRing className="w-3 h-3 text-white" />
+                          VIỆC MỚI GIAO CHO BẠN
+                        </span>
+                      )}
 
                       {/* Priority */}
                       {task.priority === 'HOA_TOC' && (
@@ -487,13 +655,10 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                         </span>
                       )}
 
-                      <span className="text-[11px] text-gray-500 font-medium">
-                        Lĩnh vực: <strong className="text-slate-700">{task.field}</strong>
-                      </span>
-
                       {/* Status badge */}
                       {task.status === 'ASSIGNED' && (
-                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-blue-600" />
                           Mới giao việc (Chờ tiếp nhận)
                         </span>
                       )}
@@ -640,6 +805,25 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
 
                   {/* Right Action buttons */}
                   <div className="flex flex-row lg:flex-col items-center lg:items-end gap-2 shrink-0 border-t lg:border-t-0 pt-3 lg:pt-0 border-gray-100">
+                    {/* Quick Action: Tiếp nhận nhiệm vụ nếu mới giao */}
+                    {task.status === 'ASSIGNED' && (task.primaryAssigneeId === currentUser.id || isLeader) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          StorageService.updateTask(task.id, {
+                            status: 'IN_PROGRESS',
+                            acceptedAt: new Date().toISOString(),
+                            primaryAssigneeNote: `Đã tiếp nhận nhiệm vụ vào lúc ${new Date().toLocaleTimeString('vi-VN')} ngày ${new Date().toLocaleDateString('vi-VN')}`
+                          });
+                          onReload();
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 border border-blue-300 transition cursor-pointer shadow-xs"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Tiếp nhận việc</span>
+                      </button>
+                    )}
+
                     {/* Button 1: Người chủ trì chọn người phối hợp */}
                     <button
                       type="button"
@@ -792,31 +976,68 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                 </div>
               </div>
 
-              {/* Primary Assignee Selector (BẮT BUỘC CHỌN NGƯỜI CHỦ TRÌ) */}
-              <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-3.5 space-y-1">
-                <label className="block text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                  <UserCheck className="w-4 h-4 text-indigo-700" />
-                  <span>5. Chọn Người chủ trì thực hiện: <span className="text-red-500">* (Bắt buộc)</span></span>
-                </label>
-                <p className="text-[11px] text-indigo-800">
-                  Người chủ trì chịu trách nhiệm chính, tiếp nhận nhiệm vụ và có quyền chọn người phối hợp thực hiện.
+              {/* Primary Assignee Selector (LỰA CHỌN NGƯỜI CHỦ TRÌ THEO THẨM QUYỀN) */}
+              <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-3.5 space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                  <label className="block text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                    <UserCheck className="w-4 h-4 text-indigo-700" />
+                    <span>5. Chọn Người chủ trì thực hiện: <span className="text-red-500">* (Bắt buộc)</span></span>
+                  </label>
+
+                  {isCompanyLeader ? (
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300 px-2.5 py-0.5 rounded-md flex items-center gap-1 self-start sm:self-auto">
+                      <ShieldCheck className="w-3 h-3 text-emerald-700" />
+                      Quyền Giám đốc / Phó Giám đốc: Toàn công ty ({eligibleAssignees.length} nhân sự)
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-indigo-800 bg-indigo-100/80 border border-indigo-300 px-2.5 py-0.5 rounded-md flex items-center gap-1 self-start sm:self-auto">
+                      <Users className="w-3 h-3 text-indigo-700" />
+                      Quyền Trưởng phòng: Phó phòng &amp; Nhân viên phòng mình ({eligibleAssignees.length} nhân sự)
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-indigo-900 leading-relaxed">
+                  {isCompanyLeader
+                    ? 'Giám đốc và Phó Giám đốc được quyền lựa chọn bất kỳ cán bộ, chuyên viên trong toàn Tổng công ty làm Người chủ trì.'
+                    : `Theo quy định, Trưởng phòng chỉ được lựa chọn Phó phòng hoặc nhân viên/chuyên viên thuộc ${currentUser.department}.`}
                 </p>
+
                 <select
                   value={primaryAssigneeId}
                   onChange={(e) => setPrimaryAssigneeId(e.target.value)}
                   required
-                  className="w-full bg-white border border-indigo-300 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-indigo-600 cursor-pointer font-bold mt-1.5"
+                  className="w-full bg-white border border-indigo-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 cursor-pointer font-bold mt-1"
                 >
-                  {SAMPLE_USERS.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      👤 {user.name} - {user.roleTitle} ({user.department})
-                    </option>
-                  ))}
+                  <option value="">-- Chọn Người chủ trì thực hiện --</option>
+                  {isCompanyLeader ? (
+                    (Object.entries(assigneesByDept) as [string, UserProfile[]][]).map(([dept, deptUsers]) => (
+                      <optgroup key={dept} label={`🏢 ${dept}`}>
+                        {deptUsers.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            👤 {user.name} — {user.roleTitle}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))
+                  ) : (
+                    eligibleAssignees.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        👤 {user.name} — {user.roleTitle} ({user.department})
+                      </option>
+                    ))
+                  )}
                 </select>
+
+                {eligibleAssignees.length === 0 && !isCompanyLeader && (
+                  <p className="text-xs text-rose-600 font-semibold mt-1">
+                    ⚠️ Chưa có danh sách Phó phòng hoặc nhân viên/chuyên viên thuộc {currentUser.department} để lựa chọn.
+                  </p>
+                )}
               </div>
 
-              {/* Priority, Field, Deadline */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Priority & Deadline */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-800 mb-1">
                     6. Mức độ ưu tiên
@@ -834,24 +1055,7 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-800 mb-1">
-                    7. Lĩnh vực chuyên môn
-                  </label>
-                  <select
-                    value={taskField}
-                    onChange={(e) => setTaskField(e.target.value)}
-                    className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-600 cursor-pointer"
-                  >
-                    <option value="Kỹ thuật - Hạ tầng">Kỹ thuật - Hạ tầng Cơ sở</option>
-                    <option value="Vận tải - Điều hành">Vận tải & Điều hành chạy tàu</option>
-                    <option value="Tài chính - Kế toán">Tài chính - Kế toán</option>
-                    <option value="An toàn giao thông">An toàn Giao thông Đường sắt</option>
-                    <option value="Văn phòng - Tổ chức">Văn phòng & Hành chính</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1">
-                    8. Hạn hoàn thành <span className="text-red-500">*</span>
+                    7. Hạn hoàn thành <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="date"

@@ -56,11 +56,16 @@ export interface BrandConfig {
 export type RetentionPeriod = 'VĨNH VIỄN' | '70 NĂM' | '50 NĂM' | '20 NĂM' | '10 NĂM' | '5 NĂM';
 
 export interface PhysicalLocation {
-  kho: string;     // e.g. "Kho Lưu trữ Số 1"
-  ke: string;      // e.g. "Kệ K-03"
-  ngan: string;    // e.g. "Ngăn N-02"
-  hop: string;     // e.g. "Hộp H-18"
-  maVach: string;  // e.g. "HSTL-K1-K03-N02-H18"
+  phongBan: string; // 1. Phòng / Ban / Đơn vị con (e.g. "Văn phòng Tổng công ty", "Ban Kế hoạch - Kinh doanh"...)
+  ke: string;       // 2. Kệ (e.g. "Kệ K-01 (Văn bản Đến)")
+  ngan: string;     // 3. Ngăn (e.g. "Ngăn N-01")
+  hop: string;      // 4. Hộp / Cặp (e.g. "Hộp / Cặp H-01")
+  hoSo: string;     // 5. Hồ sơ (e.g. "Hồ sơ số 01 (HS-01)")
+  maVach: string;   // Mã vạch định vị (e.g. "VP-K01-N01-H01-HS01")
+  // Backward compatibility:
+  donVi?: string;
+  khuVuc?: string;
+  kho?: string;
 }
 
 // -------------------------------------------------------------
@@ -174,9 +179,23 @@ export type Luong2Step =
   | 'DEPT_APPROVED'           // Trưởng phòng đã duyệt dự thảo
   | 'PRINTED_FOR_LEADER'      // Đã in bản giấy trình Lãnh đạo ngoài đời thực
   | 'LEADER_ASSIGNED'         // Lãnh đạo đã duyệt giấy & giao việc trực tiếp
+  | 'WAITING_VAN_THU_ARCHIVE' // Trưởng phòng yêu cầu Văn thư nhập Thư viện HSTL
   | 'REPORT_SUBMITTED'        // Chuyên viên nộp Báo cáo kết quả kèm minh chứng
-  | 'HSTL_ARCHIVED'           // Hồ sơ công việc hoàn chỉnh đã vào HSTL
+  | 'HSTL_ARCHIVED'           // Văn thư đã tiếp nhận & lưu trữ vào Thư viện HSTL
   | 'REJECTED';               // Bị từ chối / yêu cầu sửa lại
+
+export interface WorkflowTimelineEvent {
+  id: string;
+  step: string;
+  title: string;
+  time: string;
+  actor: string;
+  actorRole: string;
+  action: string;
+  comment?: string;
+  isEvidence?: boolean;
+  statusColor?: string;
+}
 
 export interface CoordinationFeedback {
   id: string;
@@ -211,6 +230,17 @@ export interface DraftDossier {
   deptLeadId: string;
   deptLeadName: string;
   rejectionReason?: string;
+
+  // Timeline bắt đầu soạn thảo hoặc bắt đầu giao việc kèm comment làm bằng chứng
+  assignmentEvidence?: {
+    startedAt: string;
+    startedBy: string;
+    startedByRole: string;
+    type: 'SOAN_THAO' | 'GIAO_VIEC';
+    comment: string;
+    initialDirective?: string;
+  };
+  timelineEvents?: WorkflowTimelineEvent[];
   
   // Phối hợp
   coordinations: CoordinationFeedback[];
@@ -226,6 +256,15 @@ export interface DraftDossier {
     paperSignatureConfirmed: boolean;
   };
 
+  // Trưởng phòng yêu cầu Văn thư đưa vào Thư viện HSTL
+  deptLeadRequestToVanThu?: {
+    requestedAt: string;
+    requestedBy: string;
+    requestedByRole: string;
+    note: string;
+    leaderSignedConfirmed: boolean;
+  };
+
   // Báo cáo kết quả
   resolutionReport?: {
     reportTitle: string;
@@ -237,12 +276,13 @@ export interface DraftDossier {
     submittedBy: string;
   };
 
-  // Lưu trữ Thư viện HSTL
+  // Lưu trữ Thư viện HSTL (Chỉ Văn thư thực hiện)
   hstlArchiveInfo?: {
     retentionPeriod: RetentionPeriod;
     physicalLocation: PhysicalLocation;
     archivedAt: string;
     archivedBy: string;
+    archivedByRole?: string;
     hstlCatalogId: string;
   };
   customMetadata?: Record<string, any>;
@@ -449,7 +489,7 @@ export interface AssignedTask {
   title: string;                    // Tiêu đề / Tên nhiệm vụ giao việc
   description: string;              // Nội dung công việc chi tiết
   priority: TaskPriority;           // Mức độ ưu tiên
-  field: string;                    // Lĩnh vực chuyên môn
+  field?: string;                   // Lĩnh vực (tùy chọn)
   deadline: string;                 // Hạn hoàn thành (YYYY-MM-DD)
   
   // Lãnh đạo giao việc (Giám đốc, Trưởng phòng...)
@@ -481,5 +521,70 @@ export interface AssignedTask {
   
   // Đánh giá / Nghiệm thu của Lãnh đạo
   evaluation?: TaskLeaderEvaluation;
+}
+
+// -------------------------------------------------------------
+// CHATBOT TÌM KIẾM TÀI LIỆU (OLLAMA QWEN 2.5 TRÊN MÁY CHỦ IIS)
+// -------------------------------------------------------------
+export interface OllamaServerConfig {
+  endpointUrl: string; // e.g. "http://localhost:11434" or "http://iis-server/ollama"
+  model: string;       // e.g. "qwen2.5:latest", "qwen2.5:7b", "qwen2.5:14b", "qwen2.5:3b"
+  temperature: number;
+  autoConnect: boolean;
+  status: 'CONNECTED' | 'CONNECTING' | 'FALLBACK_LOCAL_RAG' | 'DISCONNECTED';
+  lastPingTime?: string;
+  errorMessage?: string;
+}
+
+export interface MatchedDocumentItem {
+  id: string;
+  title: string;
+  code: string;
+  loaiVanBan: string;
+  category: 'HSTL' | 'DRAFT' | 'INCOMING' | 'OUTGOING';
+  coQuanBanHanh?: string;
+  ngayBanHanh?: string;
+  locationSummary?: string;
+  status?: string;
+  relevanceScore?: number;
+  snippet?: string;
+  rawDoc: any;
+}
+
+export interface AIChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string;
+  matchedDocs?: MatchedDocumentItem[];
+  modelUsed?: string;
+  isSearching?: boolean;
+}
+
+// -------------------------------------------------------------
+// NHẮN TIN TRỰC TUYẾN GIỮA CÁC USER (ONLINE USER CHAT)
+// -------------------------------------------------------------
+export interface AttachedDocumentRef {
+  id: string;
+  code: string;
+  title: string;
+  loaiVanBan: string;
+  category: 'HSTL' | 'DRAFT' | 'INCOMING' | 'OUTGOING';
+  rawDoc?: any;
+}
+
+export interface UserChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: string;
+  senderDepartment?: string;
+  senderAvatar?: string;
+  receiverId: string; // User ID or 'GENERAL_CHANNEL'
+  content: string;
+  timestamp: string;
+  createdAt: number;
+  isRead: boolean;
+  attachedDoc?: AttachedDocumentRef;
 }
 
