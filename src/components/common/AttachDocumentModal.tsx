@@ -117,7 +117,7 @@ export const AttachDocumentModal: React.FC<AttachDocumentModalProps> = ({
             <FileText className="w-5 h-5" />
             <div>
               <h3 className="font-bold text-sm sm:text-base">Đính Kèm Hồ Sơ / Tài Liệu Vào Tin Nhắn</h3>
-              <p className="text-[11px] text-blue-100">Chọn văn bản từ 4 luồng nghiệp vụ để đồng nghiệp xem trực tiếp</p>
+              <p className="text-[11px] text-blue-100">Chọn văn bản từ thư viện hồ sơ nghiệp vụ để đồng nghiệp xem trực tiếp</p>
             </div>
           </div>
           <button 

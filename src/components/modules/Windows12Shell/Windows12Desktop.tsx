@@ -302,12 +302,18 @@ export const Windows12Desktop: React.FC<Windows12DesktopProps> = ({ onLogout }) 
     }
   ];
 
+  const activeAccent = branding.primaryAccent || '#003882';
+  const themeGradient = getHeaderGradient(activeAccent);
+
   return (
-    <div className="relative w-screen h-[100dvh] overflow-hidden bg-[#f1f5f9] flex flex-col font-sans">
+    <div 
+      className="relative w-screen h-[100dvh] overflow-hidden bg-[#f1f5f9] flex flex-col font-sans"
+      style={{ '--primary-accent': activeAccent } as React.CSSProperties}
+    >
       {/* Top Corporate Header - Synchronized with Branding Accent Color */}
       <header 
         className="relative z-30 text-white px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between shadow-md border-b border-white/20 shrink-0 transition-all duration-300"
-        style={{ background: getHeaderGradient(branding.primaryAccent || '#003882') }}
+        style={{ background: themeGradient }}
       >
         {/* Left: Mobile Drawer Button + Tên công ty & Tiêu đề phần mềm */}
         <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
@@ -501,7 +507,12 @@ export const Windows12Desktop: React.FC<Windows12DesktopProps> = ({ onLogout }) 
           <div className="flex-1 min-h-0 p-3.5 space-y-2 overflow-y-auto">
             <div className="px-3 pt-1 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
               <span>Danh Mục Nghiệp Vụ</span>
-              <span className="text-[9px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded-full font-mono">5 Mục</span>
+              <span 
+                className="text-[9px] font-semibold px-1.5 py-0.2 rounded-full font-mono transition-colors"
+                style={{ color: activeAccent, backgroundColor: `${activeAccent}18` }}
+              >
+                5 Mục
+              </span>
             </div>
 
             <div className="space-y-1.5">
@@ -512,10 +523,11 @@ export const Windows12Desktop: React.FC<Windows12DesktopProps> = ({ onLogout }) 
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
+                    style={isActive ? { background: themeGradient } : undefined}
                     className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-all cursor-pointer group relative ${
                       isActive
-                        ? 'bg-gradient-to-r from-[#003882] via-[#094ba1] to-[#0a58ca] text-white font-bold shadow-md shadow-blue-900/20'
-                        : 'text-slate-700 hover:bg-slate-50/80 hover:text-blue-900 border border-transparent hover:border-gray-200/60'
+                        ? 'text-white font-bold shadow-md shadow-black/20'
+                        : 'text-slate-700 hover:bg-slate-50/80 hover:text-slate-900 border border-transparent hover:border-gray-200/60'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -532,7 +544,7 @@ export const Windows12Desktop: React.FC<Windows12DesktopProps> = ({ onLogout }) 
                           <span className="text-xs font-bold truncate leading-tight">{item.title}</span>
                         </div>
                         <div className={`text-[10px] truncate leading-tight mt-0.5 ${
-                          isActive ? 'text-blue-100 font-medium' : 'text-slate-400 group-hover:text-slate-500'
+                          isActive ? 'text-white/80 font-medium' : 'text-slate-400 group-hover:text-slate-500'
                         }`}>
                           {item.subTitle}
                         </div>
@@ -709,10 +721,11 @@ export const Windows12Desktop: React.FC<Windows12DesktopProps> = ({ onLogout }) 
                         setActiveTab(item.id);
                         setMobileMenuOpen(false);
                       }}
+                      style={isActive ? { background: themeGradient } : undefined}
                       className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition cursor-pointer ${
                         isActive
-                          ? 'bg-gradient-to-r from-[#003882] to-[#094ba1] text-white font-bold shadow-md'
-                          : 'text-slate-700 hover:bg-blue-50 active:bg-blue-100'
+                          ? 'text-white font-bold shadow-md shadow-black/20'
+                          : 'text-slate-700 hover:bg-slate-100 active:bg-slate-200'
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -725,14 +738,14 @@ export const Windows12Desktop: React.FC<Windows12DesktopProps> = ({ onLogout }) 
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-bold truncate">{item.title}</div>
-                          <div className={`text-[10px] truncate ${isActive ? 'text-blue-100 font-medium' : 'text-gray-400'}`}>
+                          <div className={`text-[10px] truncate ${isActive ? 'text-white/80 font-medium' : 'text-gray-400'}`}>
                             {item.subTitle}
                           </div>
                         </div>
                       </div>
                       {item.badge && (
                         <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold shrink-0 ml-1.5 ${
-                          isActive ? 'bg-white/20 text-white' : `${item.badgeColor} border`
+                          isActive ? 'bg-white/20 text-white border border-white/20' : `${item.badgeColor} border`
                         }`}>
                           {item.badge}
                         </span>
@@ -883,20 +896,24 @@ export const Windows12Desktop: React.FC<Windows12DesktopProps> = ({ onLogout }) 
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition cursor-pointer min-h-[44px] ${
-                isActive
-                  ? 'text-blue-700 font-bold'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
+              className="flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition cursor-pointer min-h-[44px]"
             >
-              <div className={`p-1 rounded-lg transition-transform ${
-                isActive ? 'bg-blue-100 scale-110' : ''
-              }`}>
-                <Icon className={`w-4 h-4 ${isActive ? 'text-blue-700' : 'text-slate-500'}`} />
+              <div 
+                className={`p-1 rounded-lg transition-transform ${isActive ? 'scale-110' : ''}`}
+                style={isActive ? { backgroundColor: `${activeAccent}18` } : undefined}
+              >
+                <Icon 
+                  className="w-4 h-4" 
+                  style={{ color: isActive ? activeAccent : '#64748b' }} 
+                />
               </div>
-              <span className={`text-[10px] mt-0.5 tracking-tighter truncate max-w-[64px] ${
-                isActive ? 'font-bold text-blue-800' : 'font-medium'
-              }`}>
+              <span 
+                className="text-[10px] mt-0.5 tracking-tighter truncate max-w-[64px]"
+                style={{ 
+                  color: isActive ? activeAccent : '#64748b',
+                  fontWeight: isActive ? 700 : 500 
+                }}
+              >
                 {item.shortTitle}
               </span>
             </button>

@@ -86,7 +86,7 @@ export const UnifiedChatbotAndMessengerModal: React.FC<UnifiedChatbotAndMessenge
     {
       id: 'ai-welcome',
       role: 'assistant',
-      content: `Xin chào **${currentUser.name}**! Tôi là **Trợ lý AI Qwen 2.5** tích hợp trên máy chủ IIS (Ollama) của Tổng công ty Đường sắt Việt Nam.\n\nTôi có thể giúp bạn **tìm kiếm nhanh bất kỳ hồ sơ, tài liệu, quyết định, hợp đồng hay công văn** trên cả 4 luồng nghiệp vụ. Hãy nhập số ký hiệu hoặc từ khóa cần tra cứu!`,
+      content: `Xin chào **${currentUser.name}**! Tôi là **Trợ lý AI Qwen 2.5** tích hợp trên máy chủ IIS (Ollama) của Tổng công ty Đường sắt Việt Nam.\n\nTôi có thể giúp bạn **tìm kiếm nhanh bất kỳ hồ sơ, tài liệu, quyết định, hợp đồng hay công văn** trên toàn hệ thống thư viện hồ sơ. Hãy nhập số ký hiệu hoặc từ khóa cần tra cứu!`,
       timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
       modelUsed: 'Qwen 2.5 (IIS / Ollama)'
     }
