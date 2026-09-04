@@ -35,7 +35,8 @@ import {
   ArrowRight,
   History,
   UserCheck,
-  AlertTriangle
+  AlertTriangle,
+  Trash2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -92,6 +93,14 @@ export const Luong2Module: React.FC<Luong2ModuleProps> = ({ currentUser, onOpenV
   const [requestingArchiveDraft, setRequestingArchiveDraft] = useState<DraftDossier | null>(null);
   const [restrictedModalOpen, setRestrictedModalOpen] = useState(false);
   const [restrictedMessage, setRestrictedMessage] = useState('');
+
+  // Author Edit & Delete Draft Modal State
+  const [editingDraft, setEditingDraft] = useState<DraftDossier | null>(null);
+  const [editDraftTrichYeu, setEditDraftTrichYeu] = useState('');
+  const [editDraftLoaiVB, setEditDraftLoaiVB] = useState('Tờ trình & Đề xuất');
+  const [editDraftField, setEditDraftField] = useState('Kỹ thuật - Hạ tầng');
+  const [editDraftOpinion, setEditDraftOpinion] = useState('');
+  const [editDraftFileName, setEditDraftFileName] = useState('');
 
   // Step 2 Modal: Coordination & Review (Trưởng phòng)
   const [reviewingDraft, setReviewingDraft] = useState<DraftDossier | null>(null);
@@ -557,6 +566,58 @@ export const Luong2Module: React.FC<Luong2ModuleProps> = ({ currentUser, onOpenV
     try {
       confetti({ particleCount: 40, spread: 60 });
     } catch (e) {}
+  };
+
+  // CHỈ NHÂN VIÊN SOẠN THẢO MỚI CÓ QUYỀN SỬA HỒ SƠ DỰ THẢO
+  const handleOpenEditDraft = (d: DraftDossier) => {
+    const isAuthor = d.creatorId === currentUser.id || d.creatorName === currentUser.name;
+    if (!isAuthor) {
+      alert(`Quyền truy cập bị từ chối: Hồ sơ do "${d.creatorName}" khởi tạo. Chỉ nhân viên soạn thảo công việc này mới có quyền sửa.`);
+      return;
+    }
+    setEditingDraft(d);
+    setEditDraftTrichYeu(d.trichYeu);
+    setEditDraftLoaiVB(d.loaiVanBan);
+    setEditDraftField(d.field || 'Kỹ thuật - Hạ tầng');
+    setEditDraftOpinion(d.creatorOpinion || '');
+    setEditDraftFileName(d.draftFileName || '');
+  };
+
+  const handleSaveEditDraft = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDraft) return;
+    const isAuthor = editingDraft.creatorId === currentUser.id || editingDraft.creatorName === currentUser.name;
+    if (!isAuthor) {
+      alert(`Quyền truy cập bị từ chối: Chỉ nhân viên soạn thảo (${editingDraft.creatorName}) mới có quyền sửa.`);
+      return;
+    }
+    if (!editDraftTrichYeu.trim()) {
+      alert('Vui lòng nhập trích yếu hồ sơ công việc!');
+      return;
+    }
+    StorageService.updateDraft(editingDraft.id, {
+      trichYeu: editDraftTrichYeu.trim(),
+      loaiVanBan: editDraftLoaiVB,
+      field: editDraftField,
+      creatorOpinion: editDraftOpinion.trim(),
+      draftFileName: editDraftFileName || editingDraft.draftFileName
+    });
+    reloadData();
+    setEditingDraft(null);
+    try { confetti({ particleCount: 30, spread: 50 }); } catch (e) {}
+  };
+
+  // CHỈ NHÂN VIÊN SOẠN THẢO MỚI CÓ QUYỀN XOÁ HỒ SƠ DỰ THẢO
+  const handleDeleteDraft = (d: DraftDossier) => {
+    const isAuthor = d.creatorId === currentUser.id || d.creatorName === currentUser.name;
+    if (!isAuthor) {
+      alert(`Quyền truy cập bị từ chối: Hồ sơ do "${d.creatorName}" khởi tạo. Chỉ nhân viên soạn thảo công việc này mới có quyền xoá!`);
+      return;
+    }
+    if (window.confirm(`Bạn có chắc chắn muốn xoá hồ sơ công việc "${d.trichYeu}" (Mã: ${d.code}) không? Hành động này sẽ loại bỏ hoàn toàn hồ sơ khỏi hệ thống.`)) {
+      StorageService.deleteDraft(d.id);
+      reloadData();
+    }
   };
 
   // Bước 4.2: CHỈ VĂN THƯ ĐƯỢC PHÉP NHẬP VÀO THƯ VIỆN HSTL
@@ -1697,6 +1758,36 @@ export const Luong2Module: React.FC<Luong2ModuleProps> = ({ currentUser, onOpenV
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
+
+                        {/* QUY TẮC PHÂN QUYỀN: Nhân viên soạn thảo công việc này chỉ nhân viên đó được quyền xoá, sửa */}
+                        {((d.creatorId === currentUser.id) || (d.creatorName === currentUser.name)) ? (
+                          <>
+                            <button
+                              onClick={() => handleOpenEditDraft(d)}
+                              title="Bạn là người soạn thảo - Nhấn để Sửa hồ sơ"
+                              className="px-2 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs inline-flex items-center gap-1 font-bold cursor-pointer transition shadow-2xs"
+                            >
+                              <FileEdit className="w-3.5 h-3.5 text-amber-600" />
+                              <span>Sửa</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDraft(d)}
+                              title="Bạn là người soạn thảo - Nhấn để Xoá hồ sơ"
+                              className="px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs inline-flex items-center gap-1 font-bold cursor-pointer transition shadow-2xs"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Xóa</span>
+                            </button>
+                          </>
+                        ) : (
+                          <span 
+                            className="px-2 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-gray-400 text-[10.5px] inline-flex items-center gap-1 font-medium cursor-help" 
+                            title={`Hồ sơ do "${d.creatorName}" khởi tạo. Theo quy định, chỉ người soạn thảo mới có quyền sửa hoặc xóa.`}
+                          >
+                            <Lock className="w-3 h-3 text-gray-400" />
+                            <span>Khóa</span>
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1735,6 +1826,126 @@ export const Luong2Module: React.FC<Luong2ModuleProps> = ({ currentUser, onOpenV
       onClose={() => setRestrictedModalOpen(false)}
       onSwitchedToVanThu={reloadData}
     />
+  )}
+
+  {/* Author Edit Draft Modal - CHỈ NGƯỜI SOẠN THẢO MỚI ĐƯỢC SỬA */}
+  {editingDraft && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+      <div className="bg-white border border-amber-300 rounded-2xl w-full max-w-xl shadow-2xl p-6 space-y-4 text-slate-800">
+        <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="p-2 bg-amber-100 text-amber-800 rounded-xl">
+              <FileEdit className="w-5 h-5" />
+            </span>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Sửa Đổi &amp; Cập Nhật Hồ Sơ Công Việc
+              </h3>
+              <p className="text-[11px] text-gray-500">
+                Quyền tác giả: <strong>{editingDraft.creatorName}</strong> (Chỉ nhân viên soạn thảo công việc này mới có quyền sửa)
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={() => setEditingDraft(null)} 
+            className="text-gray-400 hover:text-slate-800 text-sm font-bold p-1 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSaveEditDraft} className="space-y-3.5">
+          <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-amber-700" />
+              <span className="font-semibold text-amber-950">Mã hồ sơ: {editingDraft.code}</span>
+            </div>
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+              ✓ Quyền soạn thảo hợp lệ
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-800 mb-1">
+              Trích yếu hồ sơ công việc: <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              rows={3}
+              required
+              value={editDraftTrichYeu}
+              onChange={(e) => setEditDraftTrichYeu(e.target.value)}
+              className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1">
+                Loại văn bản:
+              </label>
+              <select
+                value={editDraftLoaiVB}
+                onChange={(e) => setEditDraftLoaiVB(e.target.value)}
+                className="w-full bg-white border border-gray-200 rounded-xl p-2 text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-600"
+              >
+                <option value="Tờ trình & Đề xuất">Tờ trình &amp; Đề xuất</option>
+                <option value="Kế hoạch tác nghiệp">Kế hoạch tác nghiệp</option>
+                <option value="Báo cáo kỹ thuật">Báo cáo kỹ thuật</option>
+                <option value="Công văn trao đổi">Công văn trao đổi</option>
+                <option value="Phương án chạy tàu">Phương án chạy tàu</option>
+                <option value="Quy trình quy chuẩn">Quy trình quy chuẩn</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1">
+                Lĩnh vực nghiệp vụ:
+              </label>
+              <select
+                value={editDraftField}
+                onChange={(e) => setEditDraftField(e.target.value)}
+                className="w-full bg-white border border-gray-200 rounded-xl p-2 text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-600"
+              >
+                <option value="Kỹ thuật - Hạ tầng">Kỹ thuật - Hạ tầng</option>
+                <option value="Vận tải - Chạy tàu">Vận tải - Chạy tàu</option>
+                <option value="Tài chính - Kế hoạch">Tài chính - Kế hoạch</option>
+                <option value="Tổ chức cán bộ">Tổ chức cán bộ</option>
+                <option value="An toàn đường sắt">An toàn đường sắt</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-800 mb-1">
+              Ý kiến / Đề xuất ban đầu của người soạn thảo:
+            </label>
+            <textarea
+              rows={2}
+              value={editDraftOpinion}
+              onChange={(e) => setEditDraftOpinion(e.target.value)}
+              className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-200">
+            <button
+              type="button"
+              onClick={() => setEditingDraft(null)}
+              className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-slate-900 cursor-pointer"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-sm transition cursor-pointer"
+            >
+              <CheckCircle className="w-4 h-4" />
+              Lưu Thay Đổi Hồ Sơ
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   )}
 </div>
   );

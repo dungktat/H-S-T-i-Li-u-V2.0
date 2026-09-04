@@ -26,6 +26,8 @@ GO
 -- ==============================================================================
 IF OBJECT_ID('dbo.AuditLogs', 'U') IS NOT NULL DROP TABLE dbo.AuditLogs;
 IF OBJECT_ID('dbo.ChatMessages', 'U') IS NOT NULL DROP TABLE dbo.ChatMessages;
+IF OBJECT_ID('dbo.LeaderTaskCoordinators', 'U') IS NOT NULL DROP TABLE dbo.LeaderTaskCoordinators;
+IF OBJECT_ID('dbo.LeaderTasks', 'U') IS NOT NULL DROP TABLE dbo.LeaderTasks;
 IF OBJECT_ID('dbo.DraftAppraisals', 'U') IS NOT NULL DROP TABLE dbo.DraftAppraisals;
 IF OBJECT_ID('dbo.DraftDossiers', 'U') IS NOT NULL DROP TABLE dbo.DraftDossiers;
 IF OBJECT_ID('dbo.OutgoingDocuments', 'U') IS NOT NULL DROP TABLE dbo.OutgoingDocuments;
@@ -143,12 +145,26 @@ CREATE TABLE dbo.DossierDocuments (
     FileSizeKb BIGINT NOT NULL DEFAULT 0,
     FileExtension NVARCHAR(20) NOT NULL DEFAULT N'pdf',
     HasDigitalSignature BIT NOT NULL DEFAULT 0,
+    HasStamp BIT NOT NULL DEFAULT 1, -- Bản scan có con dấu đỏ và chữ ký
+    SecurityLevel NVARCHAR(20) NOT NULL DEFAULT N'THƯỜNG', -- THƯỜNG (ai cũng xem được) hoặc MẬT (theo chỉ định)
+    SecretAccessDepartments NVARCHAR(MAX) NULL, -- Danh sách phòng ban được phép xem nếu MẬT (JSON array)
+    SecretAccessUsers NVARCHAR(MAX) NULL,        -- Danh sách user ID được phép xem nếu MẬT (JSON array)
+    RetentionPeriod NVARCHAR(50) NOT NULL DEFAULT N'Vĩnh viễn', -- Vĩnh viễn, 70 năm, 50 năm, 20 năm, 10 năm, 5 năm
+    PhysicalLocationId NVARCHAR(50) NULL,       -- Tọa độ kho 5 cấp
+    ReviewStatus NVARCHAR(50) NOT NULL DEFAULT N'HSTL_ARCHIVED', -- DRAFT, PENDING_REVIEW, APPROVED, REJECTED, COORDINATING, WAITING_VAN_THU, HSTL_ARCHIVED
+    ReviewerUserId NVARCHAR(50) NULL,          -- Trưởng phòng thẩm tra phê duyệt
+    ReviewerNote NVARCHAR(MAX) NULL,           -- Ý kiến thẩm tra của Trưởng phòng
+    ReviewedAt DATETIME2 NULL,                 -- Thời điểm Trưởng phòng phê duyệt
+    ArchivedByVanThuId NVARCHAR(50) NULL,      -- Cán bộ Văn thư nạp vào Thư viện HSTL
+    ArchivedAt DATETIME2 NULL,                 -- Thời điểm nạp Thư viện HSTL
     OcrContent NVARCHAR(MAX) NULL, -- Nội dung trích xuất tự động qua OCR phục vụ tìm kiếm toàn văn
     Status NVARCHAR(50) NOT NULL DEFAULT N'Đang lưu trữ',
     UploadedByUserId NVARCHAR(50) NOT NULL,
     CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_Docs_Folders FOREIGN KEY (FolderId) REFERENCES dbo.DossierFolders(FolderId),
-    CONSTRAINT FK_Docs_Users FOREIGN KEY (UploadedByUserId) REFERENCES dbo.Users(UserId)
+    CONSTRAINT FK_Docs_Users FOREIGN KEY (UploadedByUserId) REFERENCES dbo.Users(UserId),
+    CONSTRAINT FK_Docs_Reviewer FOREIGN KEY (ReviewerUserId) REFERENCES dbo.Users(UserId),
+    CONSTRAINT FK_Docs_ArchivedBy FOREIGN KEY (ArchivedByVanThuId) REFERENCES dbo.Users(UserId)
 );
 GO
 
@@ -242,7 +258,71 @@ CREATE TABLE dbo.DraftAppraisals (
 );
 GO
 
--- 3.11. BẢNG TIN NHẮN NỘI BỘ (MESSENGER) & ĐÍNH KÈM HỒ SƠ
+-- 3.11. BẢNG QUẢN LÝ GIAO VIỆC LÃNH ĐẠO (LUỒNG 3 - QUẢN LÝ NHIỆM VỤ & NGHIỆM THU)
+-- QUY TẮC: Chỉ nhân viên/cán bộ soạn thảo công việc mới có quyền Sửa, Xóa công việc đó
+CREATE TABLE dbo.LeaderTasks (
+    TaskId NVARCHAR(50) PRIMARY KEY,
+    TaskCode NVARCHAR(100) NOT NULL UNIQUE,                -- Mã nhiệm vụ e.g. CV-2026-0012
+    Title NVARCHAR(500) NOT NULL,                          -- Tiêu đề công việc
+    Description NVARCHAR(MAX) NULL,                        -- Nội dung & yêu cầu công việc
+    Priority NVARCHAR(50) NOT NULL DEFAULT N'THUONG',       -- HOA_TOC, THUONG_KHAN, KHAN, THUONG
+    Deadline DATE NOT NULL,                                -- Thời hạn hoàn thành
+    Status NVARCHAR(50) NOT NULL DEFAULT N'ASSIGNED',      -- ASSIGNED, IN_PROGRESS, COMPLETED_PENDING_REVIEW, WAITING_VAN_THU_ARCHIVE, HSTL_ARCHIVED
+    CreatedByUserId NVARCHAR(50) NOT NULL,                 -- Nhân viên / Cán bộ soạn thảo công việc (Tác giả duy nhất được sửa/xóa)
+    AssignedByRole NVARCHAR(100) NOT NULL,                 -- Vai trò người giao việc
+    PrimaryAssigneeId NVARCHAR(50) NOT NULL,               -- Cán bộ chịu trách nhiệm chủ trì
+    LeaderDirective NVARCHAR(MAX) NULL,                    -- Bút phê / Ý kiến chỉ đạo của Lãnh đạo
+    AttachedFileName NVARCHAR(250) NULL,                   -- Tài liệu giao việc đính kèm
+    AttachedFileSize NVARCHAR(50) NULL,
+    
+    -- Báo cáo kết quả của Cán bộ chủ trì
+    CompletionReportContent NVARCHAR(MAX) NULL,            -- Tóm tắt kết quả báo cáo
+    CompletionReportFile NVARCHAR(250) NULL,               -- File minh chứng / báo cáo hoàn thành
+    CompletionReportedAt DATETIME2 NULL,                   -- Thời điểm báo cáo hoàn thành
+    
+    -- Đánh giá & Nghiệm thu của Lãnh đạo / Trưởng phòng
+    LeaderEvaluationRating NVARCHAR(50) NULL,              -- XUAT_SAC, HOAN_THANH_TOT, DAT_YEU_CAU, CAN_BO_SUNG
+    LeaderEvaluationFeedback NVARCHAR(MAX) NULL,           -- Ý kiến nhận xét / chỉ đạo của Lãnh đạo
+    LeaderApprovedBy NVARCHAR(50) NULL,                    -- Lãnh đạo nghiệm thu phê duyệt
+    LeaderApprovedAt DATETIME2 NULL,                       -- Thời điểm duyệt nghiệm thu
+    
+    -- Phân định bảo mật Thư viện HSTL
+    SecurityLevel NVARCHAR(20) NOT NULL DEFAULT N'THƯỜNG', -- THƯỜNG (ai cũng xem được) hoặc MẬT (theo chỉ định)
+    SecretAccessDepartments NVARCHAR(MAX) NULL,            -- Danh sách phòng ban được phép xem nếu MẬT (JSON array)
+    SecretAccessUsers NVARCHAR(MAX) NULL,                   -- Danh sách user ID được phép xem nếu MẬT (JSON array)
+    
+    -- Thông tin Lưu trữ Thư viện HSTL do Văn thư thực hiện
+    VanThuArchivedBy NVARCHAR(50) NULL,                    -- Cán bộ Văn thư nạp vào HSTL
+    VanThuArchivedAt DATETIME2 NULL,                       -- Thời điểm nạp vào HSTL
+    RetentionPeriod NVARCHAR(50) NULL,                     -- Thời hạn bảo quản: Vĩnh viễn, 70 năm, 50 năm, 20 năm, 10 năm, 5 năm
+    PhysicalLocationId NVARCHAR(50) NULL,                  -- Vị trí lưu kho 5 cấp (Kho/Dãy/Kệ/Tầng/Hộp)
+    HstlCatalogId NVARCHAR(100) NULL,                      -- Mã danh mục trong Thư viện HSTL
+    
+    CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    UpdatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_Tasks_Creator FOREIGN KEY (CreatedByUserId) REFERENCES dbo.Users(UserId),
+    CONSTRAINT FK_Tasks_Assignee FOREIGN KEY (PrimaryAssigneeId) REFERENCES dbo.Users(UserId),
+    CONSTRAINT FK_Tasks_LeaderApprovedBy FOREIGN KEY (LeaderApprovedBy) REFERENCES dbo.Users(UserId),
+    CONSTRAINT FK_Tasks_VanThuArchivedBy FOREIGN KEY (VanThuArchivedBy) REFERENCES dbo.Users(UserId)
+);
+GO
+
+-- 3.12. BẢNG ĐƠN VỊ / CÁN BỘ PHỐI HỢP THỰC HIỆN NHIỆM VỤ
+CREATE TABLE dbo.LeaderTaskCoordinators (
+    CoordId NVARCHAR(50) PRIMARY KEY,
+    TaskId NVARCHAR(50) NOT NULL,
+    UserId NVARCHAR(50) NOT NULL,
+    Department NVARCHAR(200) NOT NULL,
+    Status NVARCHAR(50) NOT NULL DEFAULT N'DANG_XU_LY',    -- DANG_XU_LY, DA_GOP_Y, HOAN_THANH
+    Notes NVARCHAR(MAX) NULL,
+    Deadline DATE NULL,
+    AssignedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_TaskCoord_Task FOREIGN KEY (TaskId) REFERENCES dbo.LeaderTasks(TaskId) ON DELETE CASCADE,
+    CONSTRAINT FK_TaskCoord_User FOREIGN KEY (UserId) REFERENCES dbo.Users(UserId)
+);
+GO
+
+-- 3.13. BẢNG TIN NHẮN NỘI BỘ (MESSENGER) & ĐÍNH KÈM HỒ SƠ
 CREATE TABLE dbo.ChatMessages (
     MessageId NVARCHAR(50) PRIMARY KEY,
     SenderUserId NVARCHAR(50) NOT NULL,
@@ -423,6 +503,444 @@ BEGIN
     SET NOCOUNT ON;
     INSERT INTO dbo.AuditLogs (UserId, ActionType, TargetModule, TargetRecordId, IpAddress, ActionDetail)
     VALUES (@UserId, @ActionType, @TargetModule, @TargetRecordId, @IpAddress, @ActionDetail);
+END;
+GO
+
+-- 6.3. Stored Procedure: Cập nhật nhiệm vụ Giao việc (CHỈ NGƯỜI SOẠN THẢO MỚI CÓ QUYỀN SỬA)
+CREATE OR ALTER PROCEDURE dbo.sp_UpdateLeaderTask
+    @TaskId NVARCHAR(50),
+    @RequesterUserId NVARCHAR(50), -- Người đang thực hiện thao tác
+    @Title NVARCHAR(500),
+    @Description NVARCHAR(MAX) = NULL,
+    @Priority NVARCHAR(50),
+    @Deadline DATE,
+    @PrimaryAssigneeId NVARCHAR(50),
+    @LeaderDirective NVARCHAR(MAX) = NULL,
+    @AttachedFileName NVARCHAR(250) = NULL,
+    @AttachedFileSize NVARCHAR(50) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- Kiểm tra bản quyền tác giả: Chỉ nhân viên soạn thảo mới có quyền sửa
+    DECLARE @AuthorId NVARCHAR(50);
+    SELECT @AuthorId = CreatedByUserId FROM dbo.LeaderTasks WHERE TaskId = @TaskId;
+
+    IF @AuthorId IS NULL
+    BEGIN
+        THROW 50001, N'Lỗi: Không tìm thấy nhiệm vụ / công việc tương ứng.', 1;
+        RETURN;
+    END
+
+    IF @AuthorId <> @RequesterUserId
+    BEGIN
+        THROW 50002, N'Quyền truy cập bị từ chối: Chỉ nhân viên soạn thảo công việc này mới có quyền sửa.', 1;
+        RETURN;
+    END
+
+    UPDATE dbo.LeaderTasks
+    SET Title = @Title,
+        Description = @Description,
+        Priority = @Priority,
+        Deadline = @Deadline,
+        PrimaryAssigneeId = @PrimaryAssigneeId,
+        LeaderDirective = @LeaderDirective,
+        AttachedFileName = COALESCE(@AttachedFileName, AttachedFileName),
+        AttachedFileSize = COALESCE(@AttachedFileSize, AttachedFileSize),
+        UpdatedAt = SYSUTCDATETIME()
+    WHERE TaskId = @TaskId;
+
+    -- Ghi log truy vết
+    EXEC dbo.sp_WriteAuditLog 
+        @UserId = @RequesterUserId, 
+        @ActionType = N'UPDATE_TASK', 
+        @TargetModule = N'LUONG_3_GIAO_VIEC', 
+        @TargetRecordId = @TaskId, 
+        @ActionDetail = N'Người soạn thảo cập nhật nội dung nhiệm vụ thành công.';
+END;
+GO
+
+-- 6.4. Stored Procedure: Xóa nhiệm vụ Giao việc (CHỈ NGƯỜI SOẠN THẢO MỚI CÓ QUYỀN XÓA)
+CREATE OR ALTER PROCEDURE dbo.sp_DeleteLeaderTask
+    @TaskId NVARCHAR(50),
+    @RequesterUserId NVARCHAR(50) -- Người yêu cầu xóa
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Kiểm tra bản quyền tác giả: Chỉ nhân viên soạn thảo mới có quyền xóa
+    DECLARE @AuthorId NVARCHAR(50);
+    SELECT @AuthorId = CreatedByUserId FROM dbo.LeaderTasks WHERE TaskId = @TaskId;
+
+    IF @AuthorId IS NULL
+    BEGIN
+        THROW 50003, N'Lỗi: Không tìm thấy nhiệm vụ / công việc tương ứng.', 1;
+        RETURN;
+    END
+
+    IF @AuthorId <> @RequesterUserId
+    BEGIN
+        THROW 50004, N'Quyền truy cập bị từ chối: Chỉ nhân viên soạn thảo công việc này mới có quyền xóa.', 1;
+        RETURN;
+    END
+
+    -- Xóa các bản ghi phối hợp liên quan
+    DELETE FROM dbo.LeaderTaskCoordinators WHERE TaskId = @TaskId;
+
+    -- Xóa nhiệm vụ chính
+    DELETE FROM dbo.LeaderTasks WHERE TaskId = @TaskId;
+
+    -- Ghi log truy vết
+    EXEC dbo.sp_WriteAuditLog 
+        @UserId = @RequesterUserId, 
+        @ActionType = N'DELETE_TASK', 
+        @TargetModule = N'LUONG_3_GIAO_VIEC', 
+        @TargetRecordId = @TaskId, 
+        @ActionDetail = N'Người soạn thảo đã xóa nhiệm vụ khỏi hệ thống.';
+END;
+GO
+
+-- 6.5. Stored Procedure: Sửa hồ sơ dự thảo (CHỈ NGƯỜI SOẠN THẢO MỚI CÓ QUYỀN SỬA)
+CREATE OR ALTER PROCEDURE dbo.sp_UpdateDraftDossier
+    @DraftId NVARCHAR(50),
+    @RequesterUserId NVARCHAR(50),
+    @DraftTitle NVARCHAR(500),
+    @DocumentType NVARCHAR(100),
+    @SummaryContent NVARCHAR(MAX) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @AuthorId NVARCHAR(50);
+    SELECT @AuthorId = CreatedByUserId FROM dbo.DraftDossiers WHERE DraftId = @DraftId;
+
+    IF @AuthorId IS NULL
+    BEGIN
+        THROW 50005, N'Lỗi: Không tìm thấy hồ sơ dự thảo tương ứng.', 1;
+        RETURN;
+    END
+
+    IF @AuthorId <> @RequesterUserId
+    BEGIN
+        THROW 50006, N'Quyền truy cập bị từ chối: Chỉ nhân viên soạn thảo hồ sơ này mới có quyền sửa.', 1;
+        RETURN;
+    END
+
+    UPDATE dbo.DraftDossiers
+    SET DraftTitle = @DraftTitle,
+        DocumentType = @DocumentType,
+        SummaryContent = @SummaryContent
+    WHERE DraftId = @DraftId;
+
+    EXEC dbo.sp_WriteAuditLog 
+        @UserId = @RequesterUserId, 
+        @ActionType = N'UPDATE_DRAFT', 
+        @TargetModule = N'LUONG_2_SOAN_THAO', 
+        @TargetRecordId = @DraftId, 
+        @ActionDetail = N'Người soạn thảo cập nhật thông tin hồ sơ dự thảo.';
+END;
+GO
+
+-- 6.6. Stored Procedure: Xóa hồ sơ dự thảo (CHỈ NGƯỜI SOẠN THẢO MỚI CÓ QUYỀN XÓA)
+CREATE OR ALTER PROCEDURE dbo.sp_DeleteDraftDossier
+    @DraftId NVARCHAR(50),
+    @RequesterUserId NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @AuthorId NVARCHAR(50);
+    SELECT @AuthorId = CreatedByUserId FROM dbo.DraftDossiers WHERE DraftId = @DraftId;
+
+    IF @AuthorId IS NULL
+    BEGIN
+        THROW 50007, N'Lỗi: Không tìm thấy hồ sơ dự thảo tương ứng.', 1;
+        RETURN;
+    END
+
+    IF @AuthorId <> @RequesterUserId
+    BEGIN
+        THROW 50008, N'Quyền truy cập bị từ chối: Chỉ nhân viên soạn thảo hồ sơ này mới có quyền xóa.', 1;
+        RETURN;
+    END
+
+    DELETE FROM dbo.DraftAppraisals WHERE DraftId = @DraftId;
+    DELETE FROM dbo.DraftDossiers WHERE DraftId = @DraftId;
+
+    EXEC dbo.sp_WriteAuditLog 
+        @UserId = @RequesterUserId, 
+        @ActionType = N'DELETE_DRAFT', 
+        @TargetModule = N'LUONG_2_SOAN_THAO', 
+        @TargetRecordId = @DraftId, 
+        @ActionDetail = N'Người soạn thảo đã xóa hồ sơ dự thảo khỏi hệ thống.';
+END;
+GO
+
+-- 6.7. Stored Procedure: Nghiệm thu & Đánh giá kết quả nhiệm vụ Luồng 3 (DÀNH CHO LÃNH ĐẠO / TRƯỞNG PHÒNG)
+-- Thực hiện: Đánh giá xếp loại, nhận xét, phân định Mật/Thường và phân quyền xem
+CREATE OR ALTER PROCEDURE dbo.sp_LeaderEvaluateTask
+    @TaskId NVARCHAR(50),
+    @LeaderUserId NVARCHAR(50),
+    @Rating NVARCHAR(50),                          -- XUAT_SAC, HOAN_THANH_TOT, DAT_YEU_CAU, CAN_BO_SUNG
+    @Feedback NVARCHAR(MAX),                       -- Ý kiến nhận xét / chỉ đạo
+    @SecurityLevel NVARCHAR(20) = N'THƯỜNG',        -- THƯỜNG hoặc MẬT
+    @SecretAccessDepartments NVARCHAR(MAX) = NULL, -- JSON danh sách mã phòng ban được xem nếu MẬT
+    @SecretAccessUsers NVARCHAR(MAX) = NULL        -- JSON danh sách mã User được xem nếu MẬT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Kiểm tra trạng thái nhiệm vụ phải là COMPLETED_PENDING_REVIEW
+    DECLARE @CurrentStatus NVARCHAR(50);
+    SELECT @CurrentStatus = Status FROM dbo.LeaderTasks WHERE TaskId = @TaskId;
+
+    IF @CurrentStatus IS NULL
+    BEGIN
+        THROW 50009, N'Lỗi: Không tìm thấy nhiệm vụ tương ứng.', 1;
+        RETURN;
+    END
+
+    IF @CurrentStatus <> N'COMPLETED_PENDING_REVIEW'
+    BEGIN
+        THROW 50010, N'Lỗi nghiệp vụ: Nhiệm vụ chưa ở trạng thái chờ nghiệm thu (COMPLETED_PENDING_REVIEW).', 1;
+        RETURN;
+    END
+
+    -- Cập nhật kết quả nghiệm thu và chuyển sang chờ Văn thư lưu trữ
+    UPDATE dbo.LeaderTasks
+    SET Status = N'WAITING_VAN_THU_ARCHIVE',
+        LeaderEvaluationRating = @Rating,
+        LeaderEvaluationFeedback = @Feedback,
+        LeaderApprovedBy = @LeaderUserId,
+        LeaderApprovedAt = SYSUTCDATETIME(),
+        SecurityLevel = @SecurityLevel,
+        SecretAccessDepartments = @SecretAccessDepartments,
+        SecretAccessUsers = @SecretAccessUsers,
+        UpdatedAt = SYSUTCDATETIME()
+    WHERE TaskId = @TaskId;
+
+    -- Ghi nhật ký kiểm toán
+    EXEC dbo.sp_WriteAuditLog 
+        @UserId = @LeaderUserId, 
+        @ActionType = N'LEADER_EVALUATE_TASK', 
+        @TargetModule = N'LUONG_3_GIAO_VIEC', 
+        @TargetRecordId = @TaskId, 
+        @ActionDetail = N'Lãnh đạo đã nghiệm thu nhiệm vụ, phân loại bảo mật và chuyển Văn thư tiếp nhận bản cứng lưu trữ.';
+END;
+GO
+
+-- 6.8. Stored Procedure: Văn thư tiếp nhận bản cứng & Lưu vào Thư viện HSTL Luồng 3
+-- Thực hiện: Kiểm tra bản in dấu đỏ, phân bổ tọa độ kho vật lý, thời hạn bảo quản, nạp vào DossierDocuments
+CREATE OR ALTER PROCEDURE dbo.sp_VanThuArchiveTaskToHSTL
+    @TaskId NVARCHAR(50),
+    @VanThuUserId NVARCHAR(50),
+    @FolderId NVARCHAR(50),                         -- Thư mục HSTL Cấp 5
+    @PhysicalLocationId NVARCHAR(50),               -- Tọa độ kho 5 cấp (Hộp/Kệ/Dãy/Kho)
+    @RetentionPeriod NVARCHAR(50) = N'Vĩnh viễn',  -- Thời hạn bảo quản
+    @DocumentCode NVARCHAR(100) = NULL,            -- Số ký hiệu văn bản chính thức nạp lưu
+    @DocumentTitle NVARCHAR(500) = NULL            -- Trích yếu văn bản
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @CurrentStatus NVARCHAR(50), @TaskTitle NVARCHAR(500), @TaskSecurity NVARCHAR(20);
+    DECLARE @TaskSecretDepts NVARCHAR(MAX), @TaskSecretUsers NVARCHAR(MAX);
+    DECLARE @AttachedFile NVARCHAR(250);
+
+    SELECT 
+        @CurrentStatus = Status,
+        @TaskTitle = Title,
+        @TaskSecurity = SecurityLevel,
+        @TaskSecretDepts = SecretAccessDepartments,
+        @TaskSecretUsers = SecretAccessUsers,
+        @AttachedFile = ISNULL(CompletionReportFile, AttachedFileName)
+    FROM dbo.LeaderTasks 
+    WHERE TaskId = @TaskId;
+
+    IF @CurrentStatus <> N'WAITING_VAN_THU_ARCHIVE'
+    BEGIN
+        THROW 50011, N'Lỗi nghiệp vụ: Nhiệm vụ chưa được Lãnh đạo nghiệm thu để chuyển lưu trữ.', 1;
+        RETURN;
+    END
+
+    -- Cập nhật trạng thái nhiệm vụ thành HSTL_ARCHIVED
+    UPDATE dbo.LeaderTasks
+    SET Status = N'HSTL_ARCHIVED',
+        VanThuArchivedBy = @VanThuUserId,
+        VanThuArchivedAt = SYSUTCDATETIME(),
+        RetentionPeriod = @RetentionPeriod,
+        PhysicalLocationId = @PhysicalLocationId,
+        HstlCatalogId = @FolderId,
+        UpdatedAt = SYSUTCDATETIME()
+    WHERE TaskId = @TaskId;
+
+    -- Tự động sinh bản ghi trong Thư viện DossierDocuments
+    DECLARE @NewDocId NVARCHAR(50) = N'DOC-L3-' + REPLACE(NEWID(), '-', '');
+    DECLARE @FinalDocCode NVARCHAR(100) = ISNULL(@DocumentCode, N'KQ-' + @TaskId);
+    DECLARE @FinalTitle NVARCHAR(500) = ISNULL(@DocumentTitle, N'Hồ sơ hoàn thành nhiệm vụ: ' + @TaskTitle);
+
+    INSERT INTO dbo.DossierDocuments (
+        DocumentId, FolderId, DocumentCode, DocumentTitle, DocumentType,
+        IssuingAgency, IssuedDate, PageCount, FilePath, FileSizeKb,
+        FileExtension, HasDigitalSignature, HasStamp, SecurityLevel,
+        SecretAccessDepartments, SecretAccessUsers, RetentionPeriod,
+        PhysicalLocationId, ReviewStatus, ReviewerUserId, ReviewedAt,
+        ArchivedByVanThuId, ArchivedAt, OcrContent, Status, UploadedByUserId
+    )
+    VALUES (
+        @NewDocId, @FolderId, @FinalDocCode, @FinalTitle, N'Hồ sơ kết quả nhiệm vụ',
+        N'Tổng công ty Đường sắt Việt Nam', CAST(GETDATE() AS DATE), 12,
+        ISNULL(@AttachedFile, N'/storage/hstl/2026/' + @NewDocId + N'.pdf'), 2450,
+        N'pdf', 1, 1, @TaskSecurity,
+        @TaskSecretDepts, @TaskSecretUsers, @RetentionPeriod,
+        @PhysicalLocationId, N'HSTL_ARCHIVED', @VanThuUserId, SYSUTCDATETIME(),
+        @VanThuUserId, SYSUTCDATETIME(), N'Nội dung toàn văn hồ sơ kết quả nhiệm vụ đã được số hóa và ký duyệt.',
+        N'Đang lưu trữ', @VanThuUserId
+    );
+
+    -- Ghi nhật ký kiểm toán
+    EXEC dbo.sp_WriteAuditLog 
+        @UserId = @VanThuUserId, 
+        @ActionType = N'VAN_THU_ARCHIVE_HSTL', 
+        @TargetModule = N'LUONG_3_GIAO_VIEC', 
+        @TargetRecordId = @TaskId, 
+        @ActionDetail = N'Văn thư đã tiếp nhận bản cứng có dấu, định vị kho 5 cấp và nạp thành công vào Thư viện HSTL.';
+END;
+GO
+
+-- 6.9. Stored Procedure: Trưởng phòng Thẩm tra Luồng 1 (SỐ HÓA & LƯU TRỮ HỒ SƠ ĐÃ CÓ)
+-- Thực hiện: Duyệt, Trả lại, hoặc Yêu cầu bổ sung, phân loại độ bảo mật Thường / Mật
+CREATE OR ALTER PROCEDURE dbo.sp_ReviewExistingDocumentLuong1
+    @DocumentId NVARCHAR(50),
+    @ReviewerUserId NVARCHAR(50),
+    @ReviewDecision NVARCHAR(50),                 -- APPROVED, REJECTED, COORDINATING
+    @ReviewerNote NVARCHAR(MAX),                  -- Ý kiến chỉ đạo của Trưởng phòng
+    @SecurityLevel NVARCHAR(20) = N'THƯỜNG',       -- THƯỜNG hoặc MẬT
+    @SecretAccessDepartments NVARCHAR(MAX) = NULL,-- Phân quyền phòng ban nếu MẬT
+    @SecretAccessUsers NVARCHAR(MAX) = NULL       -- Phân quyền User đích danh nếu MẬT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @ReviewDecision = N'APPROVED'
+    BEGIN
+        UPDATE dbo.DossierDocuments
+        SET ReviewStatus = N'WAITING_VAN_THU',
+            ReviewerUserId = @ReviewerUserId,
+            ReviewerNote = @ReviewerNote,
+            ReviewedAt = SYSUTCDATETIME(),
+            SecurityLevel = @SecurityLevel,
+            SecretAccessDepartments = @SecretAccessDepartments,
+            SecretAccessUsers = @SecretAccessUsers
+        WHERE DocumentId = @DocumentId;
+
+        EXEC dbo.sp_WriteAuditLog 
+            @UserId = @ReviewerUserId, 
+            @ActionType = N'APPROVE_LUONG1_DOC', 
+            @TargetModule = N'LUONG_1_SO_HOA', 
+            @TargetRecordId = @DocumentId, 
+            @ActionDetail = N'Trưởng phòng đã phê duyệt hồ sơ số hóa Luồng 1, chỉ định độ mật và chuyển Văn thư tiếp nhận bản cứng.';
+    END
+    ELSE IF @ReviewDecision = N'REJECTED'
+    BEGIN
+        UPDATE dbo.DossierDocuments
+        SET ReviewStatus = N'REJECTED',
+            ReviewerUserId = @ReviewerUserId,
+            ReviewerNote = @ReviewerNote,
+            ReviewedAt = SYSUTCDATETIME()
+        WHERE DocumentId = @DocumentId;
+
+        EXEC dbo.sp_WriteAuditLog 
+            @UserId = @ReviewerUserId, 
+            @ActionType = N'REJECT_LUONG1_DOC', 
+            @TargetModule = N'LUONG_1_SO_HOA', 
+            @TargetRecordId = @DocumentId, 
+            @ActionDetail = N'Trưởng phòng trả lại hồ sơ số hóa Luồng 1 yêu cầu scan lại hoặc hoàn thiện thông tin.';
+    END
+    ELSE -- COORDINATING
+    BEGIN
+        UPDATE dbo.DossierDocuments
+        SET ReviewStatus = N'COORDINATING',
+            ReviewerUserId = @ReviewerUserId,
+            ReviewerNote = @ReviewerNote,
+            ReviewedAt = SYSUTCDATETIME()
+        WHERE DocumentId = @DocumentId;
+
+        EXEC dbo.sp_WriteAuditLog 
+            @UserId = @ReviewerUserId, 
+            @ActionType = N'COORDINATE_LUONG1_DOC', 
+            @TargetModule = N'LUONG_1_SO_HOA', 
+            @TargetRecordId = @DocumentId, 
+            @ActionDetail = N'Trưởng phòng chuyển hồ sơ số hóa sang chế độ phối hợp xác minh liên phòng.';
+    END
+END;
+GO
+
+-- 6.10. Stored Procedure: Kiểm tra quyền xem tài liệu trong Thư viện HSTL (BẢO MẬT 2 CẤP)
+CREATE OR ALTER PROCEDURE dbo.sp_CheckDocumentAccess
+    @DocumentId NVARCHAR(50),
+    @UserId NVARCHAR(50),
+    @CanAccess BIT OUTPUT,
+    @DenyReason NVARCHAR(250) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @SecLevel NVARCHAR(20), @SecretDepts NVARCHAR(MAX), @SecretUsers NVARCHAR(MAX);
+    DECLARE @UserRole NVARCHAR(50), @UserDeptId NVARCHAR(50);
+
+    SELECT 
+        @SecLevel = SecurityLevel,
+        @SecretDepts = SecretAccessDepartments,
+        @SecretUsers = SecretAccessUsers
+    FROM dbo.DossierDocuments
+    WHERE DocumentId = @DocumentId;
+
+    IF @SecLevel IS NULL
+    BEGIN
+        SET @CanAccess = 0;
+        SET @DenyReason = N'Không tìm thấy hồ sơ tài liệu trong hệ thống.';
+        RETURN;
+    END
+
+    -- Nếu là tài liệu THƯỜNG: Ai cũng có quyền xem
+    IF @SecLevel = N'THƯỜNG'
+    BEGIN
+        SET @CanAccess = 1;
+        SET @DenyReason = NULL;
+        RETURN;
+    END
+
+    -- Nếu là tài liệu MẬT: Kiểm tra vai trò & phân quyền chi tiết
+    SELECT @UserRole = Role, @UserDeptId = DepartmentId FROM dbo.Users WHERE UserId = @UserId;
+
+    -- Quản trị viên và Lãnh đạo Tổng công ty có toàn quyền tra cứu
+    IF @UserRole IN (N'ADMIN', N'LANH_DAO')
+    BEGIN
+        SET @CanAccess = 1;
+        SET @DenyReason = NULL;
+        RETURN;
+    END
+
+    -- Kiểm tra xem UserId có trong danh sách được chỉ định không
+    IF @SecretUsers IS NOT NULL AND CHARINDEX(@UserId, @SecretUsers) > 0
+    BEGIN
+        SET @CanAccess = 1;
+        SET @DenyReason = NULL;
+        RETURN;
+    END
+
+    -- Kiểm tra xem DepartmentId có trong danh sách phòng ban được chỉ định không
+    IF @SecretDepts IS NOT NULL AND CHARINDEX(@UserDeptId, @SecretDepts) > 0
+    BEGIN
+        SET @CanAccess = 1;
+        SET @DenyReason = NULL;
+        RETURN;
+    END
+
+    -- Không thỏa mãn điều kiện -> Từ chối truy cập
+    SET @CanAccess = 0;
+    SET @DenyReason = N'Tài liệu thuộc diện MẬT. Bạn không có trong danh sách được phân quyền tiếp cận.';
 END;
 GO
 

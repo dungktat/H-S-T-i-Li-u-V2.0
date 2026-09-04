@@ -1,7 +1,17 @@
 import React, { useState, useMemo } from 'react';
-import { AssignedTask, UserProfile, TaskCollaborator, TaskPriority, TaskStatus } from '../../../types';
+import { 
+  AssignedTask, 
+  UserProfile, 
+  TaskCollaborator, 
+  TaskPriority, 
+  TaskStatus, 
+  RetentionPeriod, 
+  PhysicalLocation, 
+  SecretAccessPermissions 
+} from '../../../types';
 import { StorageService } from '../../../services/storageService';
 import { SAMPLE_USERS } from '../../../data/initialData';
+import { PhysicalLocationSelector } from '../../common/PhysicalLocationSelector';
 import { 
   Briefcase, 
   UserCheck, 
@@ -30,7 +40,16 @@ import {
   ChevronRight,
   ArrowRight,
   UserPlus,
-  BellRing
+  BellRing,
+  FileEdit,
+  Lock,
+  Archive,
+  Shield,
+  ShieldAlert,
+  Key,
+  FolderCheck,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -53,10 +72,64 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
 
   // Modal states
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [editingTask, setEditingTask] = useState<AssignedTask | null>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState('');
+  const [editTaskDesc, setEditTaskDesc] = useState('');
+  const [editTaskPriority, setEditTaskPriority] = useState<TaskPriority>('KHAN');
+  const [editTaskDeadline, setEditTaskDeadline] = useState('');
+  const [editTaskLeaderDirective, setEditTaskLeaderDirective] = useState('');
+  const [editPrimaryAssigneeId, setEditPrimaryAssigneeId] = useState('');
+  const [editAttachedFile, setEditAttachedFile] = useState<{ name: string; size: string } | null>(null);
+
   const [coordinatingTask, setCoordinatingTask] = useState<AssignedTask | null>(null);
   const [reportingTask, setReportingTask] = useState<AssignedTask | null>(null);
   const [evaluatingTask, setEvaluatingTask] = useState<AssignedTask | null>(null);
   const [viewingTask, setViewingTask] = useState<AssignedTask | null>(null);
+
+  // Danh mục phòng ban tiêu chuẩn phục vụ phân quyền tài liệu MẬT
+  const ALL_DEPARTMENTS = useMemo(() => [
+    'Văn phòng Tổng công ty',
+    'Ban Vận tải',
+    'Ban Kỹ thuật - Hạ tầng Cơ sở',
+    'Ban An toàn Giao thông',
+    'Ban Tài chính - Kế toán',
+    'Ban Kế hoạch - Đầu tư',
+    'Ban Tổ chức Cán bộ'
+  ], []);
+
+  // Kiểm tra vai trò Cán bộ Văn thư - Lưu trữ Cơ quan
+  const isVanThu =
+    currentUser.role === 'VAN_THU' ||
+    currentUser.role === 'ADMIN' ||
+    currentUser.roleTitle?.toLowerCase().includes('văn thư') ||
+    currentUser.department?.toLowerCase().includes('văn thư') ||
+    currentUser.department?.toLowerCase().includes('hành chính - lưu trữ');
+
+  // Modal 4: Lãnh đạo đánh giá, nghiệm thu & phân định bảo mật chuyển HSTL
+  const [evalRating, setEvalRating] = useState<'XUAT_SAC' | 'HOAN_THANH_TOT' | 'HOAN_THANH' | 'CAN_BO_SUNG'>('HOAN_THANH_TOT');
+  const [evalFeedback, setEvalFeedback] = useState('');
+  const [evalSecurityLevel, setEvalSecurityLevel] = useState<'THƯỜNG' | 'MẬT'>('THƯỜNG');
+  const [evalPermittedDepts, setEvalPermittedDepts] = useState<string[]>([]);
+  const [evalPermittedUserIds, setEvalPermittedUserIds] = useState<string[]>([]);
+  const [evalUserSearchTerm, setEvalUserSearchTerm] = useState('');
+
+  // Modal 6: Văn thư tiếp nhận & lưu kho Thư viện HSTL 5 cấp
+  const [vanThuArchivingTask, setVanThuArchivingTask] = useState<AssignedTask | null>(null);
+  const [archiveRetention, setArchiveRetention] = useState<RetentionPeriod>('VĨNH VIỄN');
+  const [archivePhysicalLoc, setArchivePhysicalLoc] = useState<PhysicalLocation>({
+    phongBan: 'Văn phòng Tổng công ty (Phòng Hành chính - Lưu trữ)',
+    ke: 'Kệ K-01 (Văn bản Đến & Chỉ đạo)',
+    ngan: 'Ngăn N-01',
+    hop: 'Hộp / Cặp H-01',
+    hoSo: 'Hồ sơ số 01 (HS-01)',
+    maVach: 'VP-K01-N01-H01-GV',
+    donVi: 'Văn phòng Tổng công ty'
+  });
+  const [archiveSignedConfirmed, setArchiveSignedConfirmed] = useState(true);
+
+  // Cảnh báo quy chế nghiệp vụ
+  const [restrictedAlertOpen, setRestrictedAlertOpen] = useState(false);
+  const [restrictedAlertMessage, setRestrictedAlertMessage] = useState('');
 
   // Phân quyền giao việc & lựa chọn Người chủ trì:
   // - Giám đốc và Phó Giám đốc: Được chọn toàn bộ người trong công ty
@@ -143,10 +216,6 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
   const [reportResultFile, setReportResultFile] = useState<{ name: string; size: string } | null>(null);
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Form State: Leader Evaluation (Lãnh đạo nghiệm thu & đánh giá)
-  const [evalFeedback, setEvalFeedback] = useState('Đã nghiệm thu kết quả công việc. Nội dung báo cáo đạt chuẩn yêu cầu.');
-  const [evalRating, setEvalRating] = useState<'XUAT_SAC' | 'HOAN_THANH_TOT' | 'HOAN_THANH' | 'CAN_BO_SUNG'>('HOAN_THANH_TOT');
-
   // Handle: Leader creates Task
   const handleCreateTask = (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,6 +274,74 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
     try {
       confetti({ particleCount: 35, spread: 60 });
     } catch (e) {}
+  };
+
+  // Open Edit Modal - CHỈ NGƯỜI SOẠN THẢO MỚI ĐƯỢC PHÉP SỬA
+  const handleOpenEditTask = (task: AssignedTask) => {
+    if (task.assignedById !== currentUser.id) {
+      alert(`Quyền truy cập bị từ chối: Công việc này do "${task.assignedByName}" khởi tạo. Chỉ nhân viên soạn thảo công việc này mới có quyền sửa.`);
+      return;
+    }
+    setEditingTask(task);
+    setEditTaskTitle(task.title);
+    setEditTaskDesc(task.description);
+    setEditTaskPriority(task.priority);
+    setEditTaskDeadline(task.deadline);
+    setEditTaskLeaderDirective(task.leaderDirective || '');
+    setEditPrimaryAssigneeId(task.primaryAssigneeId);
+    setEditAttachedFile(task.attachedFileName ? { name: task.attachedFileName, size: task.attachedFileSize || '1.8 MB' } : null);
+  };
+
+  // Save Edit Task
+  const handleSaveEditTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTask) return;
+    if (editingTask.assignedById !== currentUser.id) {
+      alert(`Quyền truy cập bị từ chối: Chỉ nhân viên soạn thảo công việc (${editingTask.assignedByName}) mới có quyền sửa.`);
+      return;
+    }
+    if (!editTaskTitle.trim()) {
+      alert('Vui lòng nhập tên/tiêu đề công việc!');
+      return;
+    }
+    if (!editPrimaryAssigneeId) {
+      alert('Vui lòng chọn người chủ trì thực hiện công việc!');
+      return;
+    }
+
+    const assignee = allUsers.find(u => u.id === editPrimaryAssigneeId) || SAMPLE_USERS.find(u => u.id === editPrimaryAssigneeId);
+
+    StorageService.updateTask(editingTask.id, {
+      title: editTaskTitle.trim(),
+      description: editTaskDesc.trim(),
+      priority: editTaskPriority,
+      deadline: editTaskDeadline,
+      leaderDirective: editTaskLeaderDirective.trim() || undefined,
+      primaryAssigneeId: editPrimaryAssigneeId,
+      primaryAssigneeName: assignee?.name || editingTask.primaryAssigneeName,
+      primaryAssigneeDept: assignee?.department || editingTask.primaryAssigneeDept,
+      primaryAssigneeRole: assignee?.roleTitle || editingTask.primaryAssigneeRole,
+      attachedFileName: editAttachedFile?.name,
+      attachedFileSize: editAttachedFile?.size
+    });
+
+    onReload();
+    setEditingTask(null);
+    try {
+      confetti({ particleCount: 25, spread: 50 });
+    } catch (e) {}
+  };
+
+  // Delete Task - CHỈ NGƯỜI SOẠN THẢO MỚI ĐƯỢC PHÉP XOÁ
+  const handleDeleteTask = (task: AssignedTask) => {
+    if (task.assignedById !== currentUser.id) {
+      alert(`Quyền truy cập bị từ chối: Công việc "${task.title}" do "${task.assignedByName}" soạn thảo. Chỉ nhân viên soạn thảo công việc này mới có quyền xoá!`);
+      return;
+    }
+    if (window.confirm(`Bạn có chắc chắn muốn xoá công việc "${task.title}" (Mã: ${task.code}) không? Hành động này sẽ loại bỏ hoàn toàn nhiệm vụ khỏi hệ thống.`)) {
+      StorageService.deleteTask(task.id);
+      onReload();
+    }
   };
 
   // Open Coordination Modal for Primary Assignee
@@ -302,21 +439,62 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
     } catch (e) {}
   };
 
-  // Leader evaluates & approves Task
+  // Helper mở modal đánh giá & phê duyệt của Lãnh đạo
+  const handleOpenEvaluationModal = (task: AssignedTask) => {
+    setEvaluatingTask(task);
+    setEvalRating('HOAN_THANH_TOT');
+    setEvalFeedback('Đồng ý kết quả báo cáo. Nhiệm vụ hoàn thành đạt yêu cầu chuyên môn, đề nghị Văn thư tiếp nhận và nạp vào Thư viện HSTL.');
+    setEvalSecurityLevel(task.securityLevel || 'THƯỜNG');
+    setEvalPermittedDepts(task.secretAccessPermissions?.departmentNames || [task.primaryAssigneeDept, task.assignedByDept]);
+    setEvalPermittedUserIds(task.secretAccessPermissions?.userIds || [task.primaryAssigneeId, task.assignedById]);
+    setEvalUserSearchTerm('');
+  };
+
+  // Leader evaluates & approves Task: Trưởng phòng/Lãnh đạo đồng ý kết quả & phân định Thường / Mật -> Chuyển Văn thư
   const handleLeaderEvaluate = (approve: boolean) => {
     if (!evaluatingTask) return;
 
     if (approve) {
+      const isMat = evalSecurityLevel === 'MẬT';
+      const perms: SecretAccessPermissions | undefined = isMat ? {
+        departmentNames: evalPermittedDepts,
+        userIds: evalPermittedUserIds
+      } : undefined;
+
       StorageService.updateTask(evaluatingTask.id, {
-        status: 'COMPLETED',
+        status: 'WAITING_VAN_THU_ARCHIVE',
+        securityLevel: evalSecurityLevel,
+        secretAccessPermissions: perms,
+        deptLeadApproval: {
+          approvedAt: new Date().toISOString(),
+          approvedById: currentUser.id,
+          approvedByName: currentUser.name,
+          note: evalFeedback.trim() || 'Đạt yêu cầu chuyên môn.',
+          securityLevel: evalSecurityLevel,
+          secretAccessPermissions: perms,
+          forwardedToVanThu: true
+        },
         evaluation: {
           evaluatedAt: new Date().toISOString(),
           leaderId: currentUser.id,
           leaderName: currentUser.name,
-          feedback: evalFeedback.trim(),
+          feedback: evalFeedback.trim() || 'Đồng ý kết quả báo cáo.',
           rating: evalRating
         }
       });
+
+      StorageService.addNotification({
+        id: 'notif-vt-' + Date.now(),
+        title: 'Lãnh đạo đã duyệt kết quả - Chờ Văn thư lưu HSTL',
+        message: `Lãnh đạo ${currentUser.name} đã phê duyệt kết quả công việc [${evaluatingTask.code} - ${evaluatingTask.title}] (Độ mật: ${evalSecurityLevel}). Đề nghị Văn thư tiếp nhận bản cứng và lưu kho Thư viện HSTL.`,
+        timestamp: new Date().toISOString(),
+        type: 'info',
+        isRead: false
+      });
+
+      try {
+        confetti({ particleCount: 50, spread: 70 });
+      } catch (e) {}
     } else {
       // Yêu cầu bổ sung / làm tiếp
       StorageService.updateTask(evaluatingTask.id, {
@@ -325,14 +503,73 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
           evaluatedAt: new Date().toISOString(),
           leaderId: currentUser.id,
           leaderName: currentUser.name,
-          feedback: 'YÊU CẦU BỔ SUNG: ' + evalFeedback.trim(),
+          feedback: 'YÊU CẦU BỔ SUNG / LÀM LẠI: ' + evalFeedback.trim(),
           rating: 'CAN_BO_SUNG'
         }
+      });
+
+      StorageService.addNotification({
+        id: 'notif-retry-' + Date.now(),
+        title: 'Yêu cầu bổ sung báo cáo kết quả',
+        message: `Lãnh đạo ${currentUser.name} yêu cầu bổ sung báo cáo nhiệm vụ [${evaluatingTask.code}]. Ý kiến: ${evalFeedback.trim()}`,
+        timestamp: new Date().toISOString(),
+        type: 'warning',
+        isRead: false
       });
     }
 
     onReload();
     setEvaluatingTask(null);
+  };
+
+  // Helper mở modal Văn thư tiếp nhận & nạp Thư viện HSTL
+  const handleOpenVanThuArchive = (task: AssignedTask) => {
+    setVanThuArchivingTask(task);
+    setArchiveRetention('VĨNH VIỄN');
+    setArchiveSignedConfirmed(true);
+    setArchivePhysicalLoc({
+      phongBan: 'Văn phòng Tổng công ty (Phòng Hành chính - Lưu trữ)',
+      ke: 'Kệ K-01 (Văn bản Đến & Chỉ đạo)',
+      ngan: 'Ngăn N-01',
+      hop: 'Hộp / Cặp H-01',
+      hoSo: `HS-GV-${task.code.replace(/[^a-zA-Z0-9]/g, '')}`,
+      maVach: `VP-K01-N01-H01-${task.code.replace(/[^a-zA-Z0-9]/g, '')}`,
+      donVi: 'Văn phòng Tổng công ty'
+    });
+  };
+
+  // Văn thư hoàn tất lưu trữ kho HSTL 5 cấp
+  const handleConfirmVanThuArchive = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vanThuArchivingTask) return;
+
+    StorageService.updateTask(vanThuArchivingTask.id, {
+      status: 'HSTL_ARCHIVED',
+      hstlArchiveInfo: {
+        retentionPeriod: archiveRetention,
+        physicalLocation: archivePhysicalLoc,
+        archivedAt: new Date().toISOString(),
+        archivedBy: currentUser.name,
+        archivedByRole: currentUser.roleTitle || 'Cán bộ Văn thư - Lưu trữ Cơ quan',
+        hstlCatalogId: `HSTL-GV-${vanThuArchivingTask.code}`
+      }
+    });
+
+    StorageService.addNotification({
+      id: 'notif-archived-' + Date.now(),
+      title: 'Đã hoàn tất lưu trữ Thư viện HSTL',
+      message: `Văn thư ${currentUser.name} đã tiếp nhận bản cứng và chính thức lưu trữ công việc [${vanThuArchivingTask.code}] vào Thư viện HSTL (Thời hạn: ${archiveRetention}).`,
+      timestamp: new Date().toISOString(),
+      type: 'success',
+      isRead: false
+    });
+
+    try {
+      confetti({ particleCount: 60, spread: 80 });
+    } catch (e) {}
+
+    setVanThuArchivingTask(null);
+    onReload();
   };
 
   // Filter tasks
@@ -349,7 +586,9 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
       statusFilter === 'ASSIGNED' ? t.status === 'ASSIGNED' :
       statusFilter === 'IN_PROGRESS' ? (t.status === 'IN_PROGRESS' || t.status === 'COORDINATING') :
       statusFilter === 'PENDING_REVIEW' ? t.status === 'COMPLETED_PENDING_REVIEW' :
-      statusFilter === 'COMPLETED' ? t.status === 'COMPLETED' : true;
+      statusFilter === 'WAITING_VAN_THU_ARCHIVE' ? t.status === 'WAITING_VAN_THU_ARCHIVE' :
+      statusFilter === 'HSTL_ARCHIVED' ? (t.status === 'HSTL_ARCHIVED' || !!t.hstlArchiveInfo) :
+      statusFilter === 'COMPLETED' ? (t.status === 'COMPLETED' || t.status === 'HSTL_ARCHIVED' || t.status === 'WAITING_VAN_THU_ARCHIVE') : true;
 
     const matchesPriority = 
       priorityFilter === 'ALL' ? true : t.priority === priorityFilter;
@@ -361,7 +600,9 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
   const totalCount = tasks.length;
   const inProgressCount = tasks.filter(t => t.status === 'IN_PROGRESS' || t.status === 'COORDINATING').length;
   const pendingReviewCount = tasks.filter(t => t.status === 'COMPLETED_PENDING_REVIEW').length;
-  const completedCount = tasks.filter(t => t.status === 'COMPLETED').length;
+  const waitingVanThuCount = tasks.filter(t => t.status === 'WAITING_VAN_THU_ARCHIVE').length;
+  const hstlArchivedCount = tasks.filter(t => t.status === 'HSTL_ARCHIVED' || !!t.hstlArchiveInfo).length;
+  const completedCount = tasks.filter(t => t.status === 'COMPLETED' || t.status === 'HSTL_ARCHIVED' || t.status === 'WAITING_VAN_THU_ARCHIVE').length;
 
   // Kiểm tra công việc mới được giao cho tài khoản hiện tại (status === 'ASSIGNED')
   const myNewAssignedTasks = useMemo(() => {
@@ -479,38 +720,46 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
           </button>
         </div>
 
-        {/* 4 Metrics */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-4">
+        {/* 5 Metrics */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-4">
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-semibold text-gray-500">Tổng công việc</div>
+              <div className="text-[10.5px] font-semibold text-gray-500">Tổng công việc</div>
               <div className="text-lg font-bold text-slate-900">{totalCount}</div>
             </div>
-            <Briefcase className="w-5 h-5 text-slate-400" />
+            <Briefcase className="w-4 h-4 text-slate-400" />
           </div>
 
           <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-semibold text-blue-700">Đang thực hiện & Phối hợp</div>
+              <div className="text-[10.5px] font-semibold text-blue-700">Đang làm & Phối hợp</div>
               <div className="text-lg font-bold text-blue-900">{inProgressCount}</div>
             </div>
-            <Clock className="w-5 h-5 text-blue-600" />
+            <Clock className="w-4 h-4 text-blue-600" />
           </div>
 
           <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-semibold text-amber-800">Chờ Lãnh đạo nghiệm thu</div>
+              <div className="text-[10.5px] font-semibold text-amber-800">Chờ Lãnh đạo duyệt</div>
               <div className="text-lg font-bold text-amber-900">{pendingReviewCount}</div>
             </div>
-            <AlertCircle className="w-5 h-5 text-amber-600" />
+            <AlertCircle className="w-4 h-4 text-amber-600" />
+          </div>
+
+          <div className="p-3 rounded-xl bg-teal-50/70 border border-teal-200 flex items-center justify-between">
+            <div>
+              <div className="text-[10.5px] font-semibold text-teal-800">Chờ Văn thư lưu HSTL</div>
+              <div className="text-lg font-bold text-teal-900">{waitingVanThuCount}</div>
+            </div>
+            <Archive className="w-4 h-4 text-teal-600" />
           </div>
 
           <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-semibold text-emerald-800">Đã hoàn tất & Nghiệm thu</div>
-              <div className="text-lg font-bold text-emerald-900">{completedCount}</div>
+              <div className="text-[10.5px] font-semibold text-emerald-800">Đã lưu Thư viện HSTL</div>
+              <div className="text-lg font-bold text-emerald-900">{hstlArchivedCount}</div>
             </div>
-            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           </div>
         </div>
       </div>
@@ -566,15 +815,28 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                 statusFilter === 'PENDING_REVIEW' ? 'bg-white text-amber-900 shadow-xs' : 'text-gray-600 hover:text-slate-900'
               }`}
             >
-              Chờ nghiệm thu ({pendingReviewCount})
+              Chờ duyệt ({pendingReviewCount})
             </button>
             <button
-              onClick={() => setStatusFilter('COMPLETED')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
-                statusFilter === 'COMPLETED' ? 'bg-white text-emerald-900 shadow-xs' : 'text-gray-600 hover:text-slate-900'
+              onClick={() => setStatusFilter('WAITING_VAN_THU_ARCHIVE')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                statusFilter === 'WAITING_VAN_THU_ARCHIVE' ? 'bg-white text-teal-900 shadow-xs' : 'text-gray-600 hover:text-slate-900'
               }`}
             >
-              Đã nghiệm thu ({completedCount})
+              <span>Chờ lưu HSTL</span>
+              <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${
+                waitingVanThuCount > 0 ? 'bg-teal-600 text-white animate-pulse' : 'bg-gray-200 text-gray-700'
+              }`}>
+                {waitingVanThuCount}
+              </span>
+            </button>
+            <button
+              onClick={() => setStatusFilter('HSTL_ARCHIVED')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                statusFilter === 'HSTL_ARCHIVED' ? 'bg-white text-emerald-900 shadow-xs' : 'text-gray-600 hover:text-slate-900'
+              }`}
+            >
+              Đã lưu HSTL ({hstlArchivedCount})
             </button>
           </div>
 
@@ -674,15 +936,40 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                         </span>
                       )}
                       {task.status === 'COMPLETED_PENDING_REVIEW' && (
-                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 animate-pulse">
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 animate-pulse">
                           <Clock className="w-3 h-3 text-amber-700" />
-                          Đã xong - Chờ Lãnh đạo nghiệm thu
+                          Đã xong - Chờ Lãnh đạo duyệt
                         </span>
                       )}
-                      {task.status === 'COMPLETED' && (
+                      {task.status === 'WAITING_VAN_THU_ARCHIVE' && (
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-900 border border-teal-300 flex items-center gap-1 animate-pulse">
+                          <Archive className="w-3 h-3 text-teal-700" />
+                          Lãnh đạo đã duyệt - Chờ Văn thư lưu HSTL
+                        </span>
+                      )}
+                      {(task.status === 'HSTL_ARCHIVED' || !!task.hstlArchiveInfo) && (
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-700" />
+                          Đã lưu Thư viện HSTL
+                        </span>
+                      )}
+                      {task.status === 'COMPLETED' && !task.hstlArchiveInfo && (
                         <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                           Đã nghiệm thu hoàn tất
+                        </span>
+                      )}
+
+                      {/* Security badge */}
+                      {task.securityLevel === 'MẬT' && (
+                        <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                          <Lock className="w-3 h-3 text-rose-600" />
+                          MẬT (Theo chỉ định)
+                        </span>
+                      )}
+                      {task.securityLevel === 'THƯỜNG' && (
+                        <span className="text-[10.5px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                          Thường
                         </span>
                       )}
                     </div>
@@ -805,6 +1092,38 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
 
                   {/* Right Action buttons */}
                   <div className="flex flex-row lg:flex-col items-center lg:items-end gap-2 shrink-0 border-t lg:border-t-0 pt-3 lg:pt-0 border-gray-100">
+                    {/* QUY TẮC BẢN QUYỀN SOẠN THẢO: Chỉ nhân viên soạn thảo công việc này mới có quyền xoá, sửa */}
+                    {task.assignedById === currentUser.id ? (
+                      <div className="flex items-center gap-1.5 w-full justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditTask(task)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 transition cursor-pointer shadow-2xs"
+                          title="Bạn là người soạn thảo công việc này - Nhấn để Sửa"
+                        >
+                          <FileEdit className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Sửa việc</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTask(task)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 transition cursor-pointer shadow-2xs"
+                          title="Bạn là người soạn thảo công việc này - Nhấn để Xoá"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                          <span>Xóa việc</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div 
+                        className="flex items-center gap-1 text-[10.5px] text-gray-500 font-medium px-2 py-1 rounded-lg bg-gray-50 border border-gray-200"
+                        title={`Công việc do "${task.assignedByName}" soạn thảo. Theo quy định, chỉ người soạn thảo mới có quyền sửa hoặc xóa.`}
+                      >
+                        <Lock className="w-3 h-3 text-gray-400" />
+                        <span>Người soạn: {task.assignedByName}</span>
+                      </div>
+                    )}
+
                     {/* Quick Action: Tiếp nhận nhiệm vụ nếu mới giao */}
                     {task.status === 'ASSIGNED' && (task.primaryAssigneeId === currentUser.id || isLeader) && (
                       <button
@@ -825,17 +1144,19 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                     )}
 
                     {/* Button 1: Người chủ trì chọn người phối hợp */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenCoordination(task)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer"
-                    >
-                      <UserPlus className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>{hasCollabs ? 'Sửa Người phối hợp' : 'Chọn Người phối hợp'}</span>
-                    </button>
+                    {(task.status === 'ASSIGNED' || task.status === 'IN_PROGRESS' || task.status === 'COORDINATING') && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCoordination(task)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer"
+                      >
+                        <UserPlus className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>{hasCollabs ? 'Sửa Người phối hợp' : 'Chọn Người phối hợp'}</span>
+                      </button>
+                    )}
 
                     {/* Button 2: Báo cáo Đã xong (kèm comment hoặc file) */}
-                    {task.status !== 'COMPLETED' && (
+                    {(task.status === 'ASSIGNED' || task.status === 'IN_PROGRESS' || task.status === 'COORDINATING') && (
                       <button
                         type="button"
                         onClick={() => handleOpenReportCompletion(task)}
@@ -846,18 +1167,69 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                       </button>
                     )}
 
-                    {/* Button 3: Lãnh đạo nghiệm thu */}
+                    {/* Button 3: Lãnh đạo / Trưởng phòng Nghiệm thu & Duyệt kết quả */}
                     {(isLeader || task.assignedById === currentUser.id) && task.status === 'COMPLETED_PENDING_REVIEW' && (
                       <button
                         type="button"
-                        onClick={() => {
-                          setEvaluatingTask(task);
-                          setEvalFeedback('Đồng ý nghiệm thu. Báo cáo đạt yêu cầu chuyên môn.');
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 shadow-sm transition cursor-pointer"
+                        onClick={() => handleOpenEvaluationModal(task)}
+                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 shadow-sm transition cursor-pointer animate-pulse"
                       >
                         <Star className="w-3.5 h-3.5 text-amber-700" />
-                        <span>Lãnh đạo Nghiệm thu</span>
+                        <span>Duyệt Nghiệm Thu &amp; Chuyển HSTL</span>
+                      </button>
+                    )}
+
+                    {/* Button 4: Văn thư tiếp nhận & nạp vào Thư viện HSTL */}
+                    {task.status === 'WAITING_VAN_THU_ARCHIVE' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isVanThu) {
+                            handleOpenVanThuArchive(task);
+                          } else {
+                            setRestrictedAlertMessage(`Hồ sơ công việc [${task.code}] đã được Lãnh đạo/Trưởng phòng phê duyệt và chuyển lệnh sang Văn thư cơ quan. Theo quy chế lưu trữ, chỉ Cán bộ Văn thư mới có quyền tiếp nhận bản cứng có dấu đỏ và nạp vào Thư viện HSTL.`);
+                            setRestrictedAlertOpen(true);
+                          }
+                        }}
+                        className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer shadow-sm ${
+                          isVanThu
+                            ? 'text-white bg-teal-600 hover:bg-teal-700 border border-teal-500 animate-pulse'
+                            : 'text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-300'
+                        }`}
+                        title={isVanThu ? 'Nhấn để Văn thư tiếp nhận bản cứng & lưu Thư viện HSTL' : 'Chờ Văn thư tiếp nhận bản cứng & lưu Thư viện HSTL'}
+                      >
+                        <Archive className={`w-3.5 h-3.5 ${isVanThu ? 'text-white' : 'text-slate-500'}`} />
+                        <span>{isVanThu ? 'Văn thư Lưu HSTL' : 'Chờ Văn thư Lưu HSTL'}</span>
+                      </button>
+                    )}
+
+                    {/* Button 5: Xem trong Thư viện HSTL nếu đã lưu */}
+                    {(task.status === 'HSTL_ARCHIVED' || !!task.hstlArchiveInfo) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onOpenViewer) {
+                            onOpenViewer({
+                              id: task.id,
+                              soKyHieu: task.code,
+                              trichYeu: task.title,
+                              loaiVanBan: 'Báo cáo & Hồ sơ Giao việc',
+                              coQuanBanHanh: task.assignedByDept,
+                              securityLevel: task.securityLevel || 'THƯỜNG',
+                              secretAccessPermissions: task.secretAccessPermissions,
+                              physicalLocation: task.hstlArchiveInfo?.physicalLocation,
+                              retentionPeriod: task.hstlArchiveInfo?.retentionPeriod,
+                              fileUrl: task.completionReport?.attachedFileUrl || '',
+                              fileName: task.completionReport?.attachedFileName || `${task.code}_BaoCaoKetQua.pdf`
+                            });
+                          } else {
+                            setViewingTask(task);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 shadow-sm transition cursor-pointer"
+                      >
+                        <Archive className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>Xem Trong HSTL</span>
                       </button>
                     )}
 
@@ -1107,6 +1479,200 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                 >
                   <Send className="w-4 h-4" />
                   Ban Hành Chỉ Đạo &amp; Chuyển Việc Cho Chủ Trì
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 1.1: Sửa Đổi & Cập Nhật Công Việc (Chỉ Nhân Viên Soạn Thảo Có Quyền) */}
+      {/* ========================================================================= */}
+      {editingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white border border-amber-300 rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto text-slate-800">
+            <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-amber-100 text-amber-800 rounded-xl">
+                  <FileEdit className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <span>Sửa Đổi &amp; Cập Nhật Công Việc</span>
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold border border-amber-200">
+                      {editingTask.code}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-gray-500">
+                    Quyền tác giả: <strong>{editingTask.assignedByName}</strong> (Chỉ nhân viên soạn thảo công việc này mới có quyền sửa)
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setEditingTask(null)} 
+                className="text-gray-400 hover:text-slate-800 text-sm font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditTask} className="space-y-4">
+              {/* Creator info badge */}
+              <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs">
+                  <ShieldCheck className="w-4 h-4 text-amber-700" />
+                  <span className="text-amber-900 font-semibold">Người soạn thảo khởi tạo:</span>
+                  <span className="font-bold text-slate-900">{editingTask.assignedByName} ({editingTask.assignedByRole})</span>
+                </div>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
+                  ✓ Bạn có toàn quyền sửa/xóa
+                </span>
+              </div>
+
+              {/* Task Title */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  1. Tên / Tiêu đề công việc: <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editTaskTitle}
+                  onChange={(e) => setEditTaskTitle(e.target.value)}
+                  className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-600"
+                />
+              </div>
+
+              {/* Primary Assignee */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  2. Cán bộ Chủ trì thực hiện: <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={editPrimaryAssigneeId}
+                  onChange={(e) => setEditPrimaryAssigneeId(e.target.value)}
+                  className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-600 cursor-pointer"
+                >
+                  {eligibleAssignees.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} - {u.roleTitle} ({u.department})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Priority & Deadline */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    3. Mức độ ưu tiên:
+                  </label>
+                  <select
+                    value={editTaskPriority}
+                    onChange={(e) => setEditTaskPriority(e.target.value as TaskPriority)}
+                    className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-600 cursor-pointer"
+                  >
+                    <option value="HOA_TOC">🔥 HỎA TỐC (Xử lý ngay)</option>
+                    <option value="THUONG_KHAN">⚡ THƯỢNG KHẨN</option>
+                    <option value="KHAN">⚠️ KHẨN (Ưu tiên cao)</option>
+                    <option value="THUONG">📄 BÌNH THƯỜNG</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    4. Thời hạn hoàn thành (Deadline): <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editTaskDeadline}
+                    onChange={(e) => setEditTaskDeadline(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-xl p-2 text-xs text-slate-900 font-mono focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+              </div>
+
+              {/* Task Description */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  5. Nội dung &amp; Yêu cầu công việc:
+                </label>
+                <textarea
+                  rows={3}
+                  value={editTaskDesc}
+                  onChange={(e) => setEditTaskDesc(e.target.value)}
+                  className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600"
+                />
+              </div>
+
+              {/* Directive */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  6. Bút phê / Ý kiến chỉ đạo:
+                </label>
+                <textarea
+                  rows={2}
+                  value={editTaskLeaderDirective}
+                  onChange={(e) => setEditTaskLeaderDirective(e.target.value)}
+                  className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600"
+                />
+              </div>
+
+              {/* Attachment file */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  7. Tệp căn cứ / Tài liệu giao việc đính kèm:
+                </label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-gray-200 cursor-pointer transition">
+                    <Upload className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Đổi tệp đính kèm (PDF, DOCX)</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setEditAttachedFile({
+                            name: file.name,
+                            size: `${(file.size / 1024).toFixed(1)} KB`
+                          });
+                        }
+                      }}
+                    />
+                  </label>
+                  {editAttachedFile && (
+                    <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
+                      <Paperclip className="w-3.5 h-3.5" />
+                      <span>{editAttachedFile.name} ({editAttachedFile.size})</span>
+                      <button
+                        type="button"
+                        onClick={() => setEditAttachedFile(null)}
+                        className="text-red-500 hover:text-red-700 ml-1 font-bold"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingTask(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-gray-600 hover:text-slate-900 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-sm transition cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  Lưu Thay Đổi Công Việc
                 </button>
               </div>
             </form>
@@ -1510,7 +2076,144 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-200">
+            {/* 3. Phân định cấp độ bảo mật khi chuyển Văn thư lưu Thư viện HSTL */}
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-blue-700" />
+                <label className="text-xs font-bold text-slate-900">
+                  3. Phân định cấp độ bảo mật khi chuyển Văn thư lưu Thư viện HSTL:
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                  evalSecurityLevel === 'THƯỜNG' ? 'bg-blue-50/80 border-blue-400 text-blue-950 shadow-2xs' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}>
+                  <input
+                    type="radio"
+                    name="taskSecurity"
+                    checked={evalSecurityLevel === 'THƯỜNG'}
+                    onChange={() => setEvalSecurityLevel('THƯỜNG')}
+                    className="mt-0.5 text-blue-600 cursor-pointer"
+                  />
+                  <div>
+                    <div className="font-bold text-xs">TÀI LIỆU THƯỜNG</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                      Tất cả mọi cán bộ trong toàn Tổng công ty đều có quyền xem khi lưu vào Thư viện HSTL.
+                    </div>
+                  </div>
+                </label>
+
+                <label className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                  evalSecurityLevel === 'MẬT' ? 'bg-rose-50/80 border-rose-400 text-rose-950 shadow-2xs' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}>
+                  <input
+                    type="radio"
+                    name="taskSecurity"
+                    checked={evalSecurityLevel === 'MẬT'}
+                    onChange={() => setEvalSecurityLevel('MẬT')}
+                    className="mt-0.5 text-rose-600 cursor-pointer"
+                  />
+                  <div>
+                    <div className="font-bold text-xs flex items-center gap-1 text-rose-700">
+                      <Lock className="w-3.5 h-3.5" />
+                      TÀI LIỆU MẬT (Theo chỉ định)
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                      Chỉ các phòng ban hoặc các user được Trưởng phòng/Lãnh đạo chỉ định mới có quyền xem trong HSTL.
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {/* Nếu là MẬT: Hiển thị giao diện chỉ định Phòng ban & User */}
+              {evalSecurityLevel === 'MẬT' && (
+                <div className="p-3 bg-white rounded-xl border border-rose-200 space-y-3 animate-fadeIn">
+                  <div className="text-[11.5px] font-bold text-rose-800 flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-rose-600" />
+                    Chỉ định quyền xem hồ sơ Mật khi nạp vào Thư viện HSTL:
+                  </div>
+
+                  {/* Chọn Phòng ban */}
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-700 block mb-1">
+                      a. Các Phòng ban được phép xem ({evalPermittedDepts.length}):
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200 text-xs">
+                      {ALL_DEPARTMENTS.map(dept => {
+                        const checked = evalPermittedDepts.includes(dept);
+                        return (
+                          <label key={dept} className="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setEvalPermittedDepts([...evalPermittedDepts, dept]);
+                                } else {
+                                  setEvalPermittedDepts(evalPermittedDepts.filter(d => d !== dept));
+                                }
+                              }}
+                              className="text-rose-600 rounded"
+                            />
+                            <span className="text-slate-800 text-[11px]">{dept}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Chọn User cụ thể */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-bold text-slate-700">
+                        b. Các Cán bộ / User cụ thể được phép xem ({evalPermittedUserIds.length}):
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Lọc tên cán bộ..."
+                        value={evalUserSearchTerm}
+                        onChange={(e) => setEvalUserSearchTerm(e.target.value)}
+                        className="text-[10px] px-2 py-0.5 rounded border border-slate-300 w-36"
+                      />
+                    </div>
+                    <div className="max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1">
+                      {allUsers
+                        .filter(u => !evalUserSearchTerm || u.name.toLowerCase().includes(evalUserSearchTerm.toLowerCase()) || u.roleTitle.toLowerCase().includes(evalUserSearchTerm.toLowerCase()))
+                        .map(u => {
+                          const checked = evalPermittedUserIds.includes(u.id);
+                          return (
+                            <label key={u.id} className="flex items-center justify-between cursor-pointer hover:bg-white p-1 rounded">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setEvalPermittedUserIds([...evalPermittedUserIds, u.id]);
+                                    } else {
+                                      setEvalPermittedUserIds(evalPermittedUserIds.filter(id => id !== u.id));
+                                    }
+                                  }}
+                                  className="text-rose-600 rounded"
+                                />
+                                <span className="text-slate-900 font-medium text-[11px]">{u.name}</span>
+                              </div>
+                              <span className="text-[10px] text-slate-500">{u.roleTitle} ({u.department})</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+
+                  <div className="text-[10.5px] text-rose-700 italic bg-rose-50 p-2 rounded border border-rose-100">
+                    * Ghi chú: Ban Lãnh đạo, Trưởng phòng phụ trách và người thực hiện trực tiếp mặc định có quyền xem.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-gray-200">
               <button
                 type="button"
                 onClick={() => handleLeaderEvaluate(false)}
@@ -1521,10 +2224,10 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
               <button
                 type="button"
                 onClick={() => handleLeaderEvaluate(true)}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm cursor-pointer"
+                className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 shadow-md cursor-pointer"
               >
                 <Check className="w-4 h-4" />
-                ✓ Duyệt Nghiệm Thu Hoàn Tất
+                ✓ Đồng ý kết quả &amp; Chuyển Văn thư lưu HSTL
               </button>
             </div>
           </div>
@@ -1625,8 +2328,57 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                 </div>
               )}
 
-              {/* Leader evaluation */}
-              {viewingTask.evaluation && (
+              {/* Leader evaluation & Approval */}
+              {viewingTask.deptLeadApproval && (
+                <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-blue-950 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-blue-700" />
+                      Lãnh đạo / Trưởng phòng Phê duyệt ({viewingTask.deptLeadApproval.approvedByName}):
+                    </span>
+                    <span className="text-[10px] text-blue-700">
+                      {new Date(viewingTask.deptLeadApproval.approvedAt).toLocaleString('vi-VN')}
+                    </span>
+                  </div>
+                  <p className="text-slate-800 italic">"{viewingTask.deptLeadApproval.note}"</p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[11px] font-semibold text-slate-600">Độ mật khi lưu HSTL:</span>
+                    {viewingTask.deptLeadApproval.securityLevel === 'MẬT' ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-rose-600" />
+                        MẬT (Theo chỉ định)
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                        THƯỜNG (Tất cả user có quyền xem)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* HSTL Archive Info */}
+              {viewingTask.hstlArchiveInfo && (
+                <div className="p-3 bg-teal-50/80 border border-teal-200 rounded-xl space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-teal-950 flex items-center gap-1.5">
+                      <Archive className="w-4 h-4 text-teal-700" />
+                      Thông tin Lưu trữ Thư viện HSTL (Văn thư thực hiện):
+                    </span>
+                    <span className="text-[10px] text-teal-700">
+                      {new Date(viewingTask.hstlArchiveInfo.archivedAt).toLocaleString('vi-VN')}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1 text-[11px] text-slate-700">
+                    <div><strong>Cán bộ Văn thư:</strong> {viewingTask.hstlArchiveInfo.archivedBy}</div>
+                    <div><strong>Thời hạn bảo quản:</strong> {viewingTask.hstlArchiveInfo.retentionPeriod}</div>
+                    <div><strong>Mã mục lục HSTL:</strong> {viewingTask.hstlArchiveInfo.hstlCatalogId}</div>
+                    <div><strong>Vị trí kho 5 cấp:</strong> {viewingTask.hstlArchiveInfo.physicalLocation ? `${viewingTask.hstlArchiveInfo.physicalLocation.ke} - ${viewingTask.hstlArchiveInfo.physicalLocation.ngan} - ${viewingTask.hstlArchiveInfo.physicalLocation.hop}` : 'Kho lưu trữ trung tâm'}</div>
+                  </div>
+                </div>
+              )}
+
+              {viewingTask.evaluation && !viewingTask.deptLeadApproval && (
                 <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-amber-950">Đánh giá nghiệm thu của Lãnh đạo:</span>
@@ -1646,6 +2398,171 @@ export const TaskManagementSection: React.FC<TaskManagementSectionProps> = ({
                 className="px-5 py-2 rounded-xl text-xs font-bold text-slate-700 bg-gray-100 hover:bg-gray-200 cursor-pointer"
               >
                 Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 6: Văn thư Tiếp nhận & Lưu kho Thư viện HSTL 5 cấp */}
+      {/* ========================================================================= */}
+      {vanThuArchivingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[94dvh] my-auto text-slate-800">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-teal-800 via-teal-700 to-emerald-800 text-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-white/20 border border-white/30 text-white shadow-inner">
+                  <Archive className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Văn Thư Tiếp Nhận &amp; Lưu Trữ Thư Viện HSTL
+                  </h3>
+                  <p className="text-xs text-teal-100">
+                    Chỉ Văn thư cơ quan mới có quyền tiếp nhận bản cứng có dấu đỏ và nạp hồ sơ vào Thư viện HSTL
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setVanThuArchivingTask(null)}
+                className="p-1 rounded-lg text-teal-100 hover:text-white hover:bg-white/20 transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleConfirmVanThuArchive} className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50">
+              {/* Task Summary */}
+              <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                    {vanThuArchivingTask.code}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-600">Đơn vị giao: <strong>{vanThuArchivingTask.assignedByDept}</strong></span>
+                    {vanThuArchivingTask.securityLevel === 'MẬT' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-rose-600" />
+                        MẬT (Theo chỉ định)
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                        THƯỜNG
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="font-bold text-slate-900 text-sm">
+                  {vanThuArchivingTask.title}
+                </div>
+
+                {vanThuArchivingTask.deptLeadApproval && (
+                  <div className="p-2 rounded-lg bg-teal-50/60 border border-teal-200 text-slate-700">
+                    <div className="font-bold text-teal-900 text-[11px]">
+                      ✓ Ý kiến phê duyệt của Lãnh đạo ({vanThuArchivingTask.deptLeadApproval.approvedByName}):
+                    </div>
+                    <div className="italic text-xs mt-0.5">"{vanThuArchivingTask.deptLeadApproval.note}"</div>
+                  </div>
+                )}
+              </div>
+
+              {/* 1. Chọn Thời hạn bảo quản */}
+              <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2">
+                <label className="block text-xs font-bold text-slate-800">
+                  1. Thời hạn bảo quản hồ sơ tài liệu trong Thư viện HSTL: <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={archiveRetention}
+                  onChange={(e) => setArchiveRetention(e.target.value as RetentionPeriod)}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-teal-950 cursor-pointer focus:outline-none focus:border-teal-600"
+                >
+                  <option value="VĨNH VIỄN">VĨNH VIỄN (Tài liệu có giá trị đặc biệt / Lịch sử Tổng công ty)</option>
+                  <option value="70 NĂM">70 NĂM (Hồ sơ quy hoạch đường sắt, hồ sơ tài sản lớn)</option>
+                  <option value="50 NĂM">50 NĂM (Hồ sơ kỹ thuật công trình, hồ sơ thiết kế)</option>
+                  <option value="20 NĂM">20 NĂM (Hồ sơ quản lý điều hành nhiệm vụ, thanh tra kiểm tra)</option>
+                  <option value="10 NĂM">10 NĂM (Báo cáo tổng kết, biên bản nghiệm thu thông thường)</option>
+                  <option value="5 NĂM">5 NĂM (Báo cáo định kỳ, công tác vụ việc hành chính)</option>
+                </select>
+              </div>
+
+              {/* 2. Định vị lưu trữ kho vật lý 5 cấp */}
+              <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2">
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  2. Tọa độ xếp kho lưu trữ vật lý (Chuẩn 5 cấp quy định): <span className="text-red-500">*</span>
+                </label>
+                <PhysicalLocationSelector
+                  value={archivePhysicalLoc}
+                  onChange={setArchivePhysicalLoc}
+                />
+              </div>
+
+              {/* 3. Cam kết kiểm tra bản cứng có dấu đỏ */}
+              <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  id="chkArchiveSign"
+                  checked={archiveSignedConfirmed}
+                  onChange={(e) => setArchiveSignedConfirmed(e.target.checked)}
+                  className="mt-0.5 text-teal-600 rounded cursor-pointer"
+                />
+                <label htmlFor="chkArchiveSign" className="text-xs text-slate-800 cursor-pointer leading-relaxed">
+                  <strong>Xác nhận của Văn thư cơ quan:</strong> Đã tiếp nhận và đối chiếu bản in báo cáo kết quả hoàn thành có đầy đủ chữ ký của Lãnh đạo giao việc và con dấu đỏ pháp lý, sẵn sàng xếp vào hộp lưu trữ và đồng bộ dữ liệu vào Thư viện HSTL điện tử.
+                </label>
+              </div>
+
+              {/* Footer actions */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setVanThuArchivingTask(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={!archiveSignedConfirmed}
+                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white shadow-md transition ${
+                    archiveSignedConfirmed 
+                      ? 'bg-teal-700 hover:bg-teal-800 cursor-pointer' 
+                      : 'bg-slate-300 cursor-not-allowed text-slate-500'
+                  }`}
+                >
+                  <Archive className="w-4 h-4" />
+                  <span>Xác Nhận Đưa Vào Thư Viện HSTL</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 7: Cảnh Báo Quy Chế Nghiệp Vụ */}
+      {/* ========================================================================= */}
+      {restrictedAlertOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white border border-rose-300 rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4 text-slate-800 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+              <Lock className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-slate-900">Quy Định Thẩm Quyền Nghiệp Vụ</h4>
+              <p className="text-xs text-slate-600 mt-2 leading-relaxed text-justify">
+                {restrictedAlertMessage}
+              </p>
+            </div>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setRestrictedAlertOpen(false)}
+                className="px-6 py-2 rounded-xl text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 cursor-pointer shadow-sm"
+              >
+                Đã hiểu &amp; Đóng
               </button>
             </div>
           </div>

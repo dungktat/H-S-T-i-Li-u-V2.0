@@ -71,6 +71,7 @@ export const ThuVienTongHopModule: React.FC<ThuVienTongHopModuleProps> = ({
   const draftCases = StorageService.getDrafts().filter(d => d.currentStep === 'HSTL_ARCHIVED' || d.currentStep === 'REPORT_SUBMITTED');
   const incomingDocs = StorageService.getIncomingDocs();
   const outgoingDocs = StorageService.getOutgoingDocs();
+  const leaderTasks = StorageService.getTasks().filter(t => t.status === 'HSTL_ARCHIVED' || !!t.hstlArchiveInfo);
 
   // Combine unified items for global search with full OCR text
   const allItems = [
@@ -110,7 +111,8 @@ export const ThuVienTongHopModule: React.FC<ThuVienTongHopModuleProps> = ({
         docType: d.field || 'HSCV & Báo cáo',
         retention: d.hstlArchiveInfo?.retentionPeriod || 'VĨNH VIỄN',
         location: d.hstlArchiveInfo?.physicalLocation,
-        securityLevel: 'THƯỜNG' as const,
+        securityLevel: ((d as any).securityLevel || 'THƯỜNG') as 'THƯỜNG' | 'MẬT',
+        secretAccessPermissions: (d as any).secretAccessPermissions,
         customMetadata: (d as any).customMetadata,
         ocrText: fullOcr,
         raw: d
@@ -154,6 +156,41 @@ export const ThuVienTongHopModule: React.FC<ThuVienTongHopModuleProps> = ({
       customMetadata: (d as any).customMetadata,
       ocrText: `${d.soDiFullCode} ${d.trichYeu} ${d.donViSoanThao} ${d.nguoiKy} ${d.chucVuNguoiKy} ${d.noiNhan}`,
       raw: d
+    })),
+    ...leaderTasks.map(t => ({
+      id: t.id,
+      type: 'LUONG_3_TASK' as const,
+      typeLabel: 'Hồ sơ Nhiệm vụ & Giao việc',
+      typeBadgeColor: 'from-amber-600 to-orange-600',
+      code: t.code,
+      soKyHieuGoc: t.code,
+      trichYeu: t.title + (t.description ? ` - ${t.description}` : ''),
+      agency: t.assignedByDept || 'Lãnh đạo Cơ quan',
+      date: t.hstlArchiveInfo?.archivedAt ? t.hstlArchiveInfo.archivedAt.split('T')[0] : t.deadline,
+      field: t.field || 'Chỉ đạo & Điều hành',
+      docType: 'Báo cáo kết quả nhiệm vụ',
+      retention: t.hstlArchiveInfo?.retentionPeriod || 'VĨNH VIỄN',
+      location: t.hstlArchiveInfo?.physicalLocation,
+      securityLevel: (t.securityLevel || 'THƯỜNG') as 'THƯỜNG' | 'MẬT',
+      secretAccessPermissions: t.secretAccessPermissions,
+      customMetadata: {
+        'Người giao việc': `${t.assignedByName} (${t.assignedByRole})`,
+        'Người chủ trì': `${t.primaryAssigneeName} (${t.primaryAssigneeDept})`,
+        'Ý kiến nghiệm thu': t.deptLeadApproval?.note || t.evaluation?.feedback || 'Đạt yêu cầu',
+        'Báo cáo kết quả': t.completionReport?.comment || 'Đã hoàn thành'
+      },
+      ocrText: `${t.code} ${t.title} ${t.description} ${t.assignedByName} ${t.primaryAssigneeName} ${t.completionReport?.comment || ''} ${t.evaluation?.feedback || ''}`,
+      raw: {
+        ...t,
+        soKyHieu: t.code,
+        trichYeu: t.title,
+        loaiVanBan: 'Báo cáo kết quả nhiệm vụ',
+        coQuanBanHanh: t.assignedByDept,
+        ngayBanHanh: t.deadline,
+        fileScanUrl: t.completionReport?.attachedFileUrl || '#',
+        fileName: t.completionReport?.attachedFileName || `${t.code}_BaoCaoKetQua.pdf`,
+        fileSize: t.completionReport?.attachedFileSize || '1.8 MB'
+      }
     }))
   ];
 
@@ -188,14 +225,14 @@ export const ThuVienTongHopModule: React.FC<ThuVienTongHopModuleProps> = ({
 
     const sec = item.securityLevel || 'THƯỜNG';
     if (sec === 'THƯỜNG') return true;
-    // If MẬT:
-    if (currentUser.role === 'ADMIN' || currentUser.role === 'TRUONG_PHONG') return true;
+    // If MẬT: Phải theo Trưởng phòng chỉ định (phòng ban hoặc user cụ thể)
+    if (currentUser.role === 'ADMIN' || currentUser.role === 'LANH_DAO') return true;
     const rawDoc = item.raw || {};
-    if (rawDoc.createdBy === currentUser.id || rawDoc.creatorId === currentUser.id) return true;
+    if (rawDoc.createdBy === currentUser.id || rawDoc.creatorId === currentUser.id || rawDoc.assignedById === currentUser.id || rawDoc.primaryAssigneeId === currentUser.id) return true;
     const perms = rawDoc.secretAccessPermissions || item.secretAccessPermissions;
-    if (!perms) return true;
-    if (perms.userIds?.includes(currentUser.id)) return true;
-    if (perms.departmentNames?.includes(currentUser.department)) return true;
+    if (!perms) return false;
+    if (perms.userIds && perms.userIds.includes(currentUser.id)) return true;
+    if (perms.departmentNames && currentUser.department && perms.departmentNames.some((d: string) => d.toLowerCase().trim() === currentUser.department.toLowerCase().trim())) return true;
     return false;
   };
 

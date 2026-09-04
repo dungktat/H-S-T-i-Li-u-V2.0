@@ -224,6 +224,7 @@ export interface DraftDossier {
   draftFileUrl: string;
   draftFileName: string;
   draftFileSize: string;
+  creatorOpinion?: string;     // Ý kiến/đề xuất của người soạn thảo
   currentVersion?: number;     // Phiên bản dự thảo hiện tại: 1, 2, 3...
   versions?: DocumentVersion[]; // Lịch sử các phiên bản dự thảo (v1, v2...)
   currentStep: Luong2Step;
@@ -450,6 +451,8 @@ export type TaskStatus =
   | 'IN_PROGRESS'               // Đang thực hiện (Người chủ trì đã tiếp nhận)
   | 'COORDINATING'              // Đang phối hợp thực hiện
   | 'COMPLETED_PENDING_REVIEW'  // Đã báo cáo xong - Chờ Lãnh đạo nghiệm thu
+  | 'WAITING_VAN_THU_ARCHIVE'   // Trưởng phòng/Lãnh đạo đã đồng ý kết quả, chuyển lệnh Văn thư đưa vào HSTL
+  | 'HSTL_ARCHIVED'             // Văn thư đã tiếp nhận bản cứng & hoàn tất lưu kho Thư viện HSTL
   | 'COMPLETED'                 // Đã hoàn thành (Chủ trì đã nộp báo cáo kết quả kèm comment/file & Lãnh đạo nghiệm thu)
   | 'EVALUATED';                // Lãnh đạo đã nghiệm thu / đánh giá hoàn tất
 
@@ -521,6 +524,29 @@ export interface AssignedTask {
   
   // Đánh giá / Nghiệm thu của Lãnh đạo
   evaluation?: TaskLeaderEvaluation;
+
+  // Phân định bảo mật & Quyết định của Trưởng phòng / Lãnh đạo khi duyệt kết quả
+  securityLevel?: 'THƯỜNG' | 'MẬT';
+  secretAccessPermissions?: SecretAccessPermissions;
+  deptLeadApproval?: {
+    approvedAt: string;
+    approvedById: string;
+    approvedByName: string;
+    note: string;
+    securityLevel: 'THƯỜNG' | 'MẬT';
+    secretAccessPermissions?: SecretAccessPermissions;
+    forwardedToVanThu: boolean;
+  };
+
+  // Lưu trữ Thư viện HSTL (Chỉ Văn thư cơ quan thực hiện sau khi Trưởng phòng/Lãnh đạo đồng ý)
+  hstlArchiveInfo?: {
+    retentionPeriod: RetentionPeriod;
+    physicalLocation: PhysicalLocation;
+    archivedAt: string;
+    archivedBy: string;
+    archivedByRole?: string;
+    hstlCatalogId: string;
+  };
 }
 
 // -------------------------------------------------------------
